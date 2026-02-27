@@ -9,6 +9,10 @@ export const envChecker = () => {
     PLANNING_MODEL,
     EMBEDDING_MODEL,
     PORT,
+    GOOGLE_CLIENT_ID,
+    GOOGLE_CLIENT_SECRET,
+    GOOGLE_REDIRECT_URI,
+    JWT_SECRET,
   } = process.env;
 
   const missingVars: string[] = [];
@@ -20,6 +24,10 @@ export const envChecker = () => {
   if (!PLANNING_MODEL) missingVars.push("PLANNING_MODEL");
   if (!EMBEDDING_MODEL) missingVars.push("EMBEDDING_MODEL");
   if (!PORT) missingVars.push("PORT");
+  if (!GOOGLE_CLIENT_ID) missingVars.push("GOOGLE_CLIENT_ID");
+  if (!GOOGLE_CLIENT_SECRET) missingVars.push("GOOGLE_CLIENT_SECRET");
+  if (!GOOGLE_REDIRECT_URI) missingVars.push("GOOGLE_REDIRECT_URI");
+  if (!JWT_SECRET) missingVars.push("JWT_SECRET");
 
   if (missingVars.length > 0) {
     throw new Error(

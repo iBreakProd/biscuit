@@ -23,6 +23,12 @@ app.use("/chats", chatRouter);
 app.use("/tasks", tasksRouter);
 app.use("/sse", sseRouter);
 
+import authRouter from "./auth/google";
+app.use("/auth", authRouter);
+
+import driveRouter from "./drive/routes";
+app.use("/drive", driveRouter);
+
 import debugRouter from "./routes/debug";
 app.use("/debug", debugRouter);
 

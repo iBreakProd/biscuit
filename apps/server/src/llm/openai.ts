@@ -27,6 +27,10 @@ export async function callPlannerLLM(params: {
 export async function callChatModel(params: {
   messages: { role: "system" | "user" | "assistant"; content: string }[];
 }): Promise<string> {
+  if (!process.env.OPENAI_API_KEY) {
+    return "This is a dummy AI response for local testing.";
+  }
+
   const completion = await openai.chat.completions.create({
     model: "gpt-4o-mini",
     messages: params.messages,

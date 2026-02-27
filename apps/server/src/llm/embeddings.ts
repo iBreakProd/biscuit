@@ -1,6 +1,11 @@
 import { openai } from "./openai";
 
 export async function embedText(texts: string[]): Promise<number[][]> {
+  if (!process.env.OPENAI_API_KEY) {
+    console.warn("MOCK EMBEDDING. API Key missing");
+    return texts.map(() => new Array(1536).fill(0.1));
+  }
+
   const response = await openai.embeddings.create({
     model: "text-embedding-3-small",
     input: texts,
