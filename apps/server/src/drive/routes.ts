@@ -39,8 +39,14 @@ router.post("/sync", requireAuth, async (req: AuthenticatedRequest, res: Respons
 
     try {
       for (const file of files) {
-        const isSupported = SUPPORTED_MIME_TYPES.includes(file.mimeType);
+        let isSupported = SUPPORTED_MIME_TYPES.includes(file.mimeType);
         
+        const MAX_SIZE_BYTES = 10 * 1024 * 1024; // 10MB limit
+        const isOversized = file.size !== undefined && file.size > MAX_SIZE_BYTES;
+        if (isOversized) {
+          isSupported = false;
+        }
+
         if (isSupported) {
           supportedCount++;
         } else {
@@ -49,7 +55,13 @@ router.post("/sync", requireAuth, async (req: AuthenticatedRequest, res: Respons
 
         type IngestionPhase = "discovered" | "failed" | "fetching" | "chunk_pending" | "vectorizing" | "indexed";
         let isPhase: IngestionPhase = isSupported ? "discovered" : "failed";
-        const errorMsg = isSupported ? null : `Unsupported MIME type: ${file.mimeType}`;
+        
+        let errorMsg = null;
+        if (!isSupported) {
+          errorMsg = isOversized 
+            ? `File exceeds 10MB limit (size: ${file.size} bytes)` 
+            : `Unsupported MIME type: ${file.mimeType}`;
+        }
 
         const existingRecord = await db.select().from(driveFiles).where(
           and(eq(driveFiles.userId, user.id), eq(driveFiles.fileId, file.fileId))

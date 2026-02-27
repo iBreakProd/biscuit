@@ -17,6 +17,7 @@ export type DriveFileMetadata = {
   name: string;
   mimeType: string;
   modifiedTime: string;
+  size?: number;
 };
 
 export async function listDriveFilesForUser(tokens: any): Promise<DriveFileMetadata[]> {
@@ -25,7 +26,7 @@ export async function listDriveFilesForUser(tokens: any): Promise<DriveFileMetad
   try {
     const res = await drive.files.list({
       q: "trashed = false", // Only active files
-      fields: "nextPageToken, files(id, name, mimeType, modifiedTime)",
+      fields: "nextPageToken, files(id, name, mimeType, modifiedTime, size)",
       spaces: "drive",
       pageSize: 100, // Reasonable batch limit for phase 5
     });
@@ -37,6 +38,7 @@ export async function listDriveFilesForUser(tokens: any): Promise<DriveFileMetad
       name: file.name as string,
       mimeType: file.mimeType as string,
       modifiedTime: file.modifiedTime as string,
+      size: file.size ? parseInt(file.size, 10) : undefined,
     }));
   } catch (error) {
     console.error("Google Drive API List Error:", error);

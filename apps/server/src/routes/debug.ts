@@ -23,8 +23,8 @@ router.get("/qdrant/vector-search", async (req: Request, res: Response) => {
       query: validatedInput.query,
       hits: results.hits,
     });
-  } catch (error) {
-    if (error instanceof z.ZodError) {
+  } catch (error: any) {
+    if (error.name === "ZodError") {
       res.status(400).json({ error: "Validation Error", details: error.errors });
     } else {
       console.error("Vector search debug error:", error);

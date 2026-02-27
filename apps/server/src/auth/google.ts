@@ -71,6 +71,7 @@ router.get("/google/callback", async (req: Request, res: Response): Promise<void
           googleId: userInfo.id,
           email: userInfo.email,
           name: userInfo.name,
+          ...(tokens.refresh_token && { googleRefreshToken: tokens.refresh_token }),
         })
         .returning();
       userRecord = newRow as any;
@@ -81,6 +82,7 @@ router.get("/google/callback", async (req: Request, res: Response): Promise<void
           email: userInfo.email,
           name: userInfo.name,
           updatedAt: new Date(),
+          ...(tokens.refresh_token && { googleRefreshToken: tokens.refresh_token }),
         })
         .where(eq(users.id, userRecord.id))
         .returning();
@@ -108,15 +110,7 @@ router.get("/google/callback", async (req: Request, res: Response): Promise<void
       { expiresIn: "7d" }
     );
 
-    res.json({
-      message: "Successfully logged in via Google",
-      token: sessionToken,
-      user: {
-        id: userRecord.id,
-        name: userRecord.name,
-        email: userRecord.email,
-      }
-    });
+    res.redirect(`http://localhost:3000/?token=${sessionToken}`);
   } catch (error) {
     console.error("Google OAuth API Error:", error);
     res.status(500).send("Authentication failed");

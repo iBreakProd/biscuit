@@ -14,6 +14,7 @@ export const users = pgTable("users", {
   googleId: varchar("google_id").notNull().unique(),
   email: varchar("email").notNull(),
   name: varchar("name").notNull(),
+  googleRefreshToken: text("google_refresh_token"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at")
     .notNull()
