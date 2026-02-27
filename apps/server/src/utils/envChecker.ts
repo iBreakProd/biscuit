@@ -2,7 +2,7 @@ import "dotenv/config";
 
 export const envChecker = () => {
   const {
-    OPEN_AI_API,
+    OPENAI_API_KEY,
     QDRANT_URL,
     QDRANT_API_KEY,
     DATABASE_URL,
@@ -13,7 +13,7 @@ export const envChecker = () => {
 
   const missingVars: string[] = [];
 
-  if (!OPEN_AI_API) missingVars.push("OPEN_AI_API");
+  if (!OPENAI_API_KEY) missingVars.push("OPENAI_API_KEY");
   if (!QDRANT_URL) missingVars.push("QDRANT_URL");
   if (!QDRANT_API_KEY) missingVars.push("QDRANT_API_KEY");
   if (!DATABASE_URL) missingVars.push("DATABASE_URL");

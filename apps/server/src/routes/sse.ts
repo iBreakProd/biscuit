@@ -1,12 +1,13 @@
 import { Router, Request, Response } from "express";
-import { getRedisClient } from "@repo/redis";
+import { getRedisClient, readAgentEvents } from "@repo/redis";
+import { TaskIdSchema, AgentEventsQuerySchema } from "@repo/zod-schemas";
 
 const router: Router = Router();
 
 router.get("/agent/:taskId", async (req: Request, res: Response) => {
   try {
-    const taskId = req.params.taskId as string;
-    let lastEventId = (req.query.since as string) || "0";
+    const taskId = TaskIdSchema.parse(req.params.taskId);
+    let lastEventId = AgentEventsQuerySchema.parse(req.query).since || "0-0";
     const streamKey = `agent_events:${taskId}`;
 
     res.setHeader("Content-Type", "text/event-stream");
@@ -20,7 +21,7 @@ router.get("/agent/:taskId", async (req: Request, res: Response) => {
     // Loop for long-polling the redis stream
     const interval = setInterval(async () => {
       try {
-        // Block for up to 5000ms
+        // We use raw xRead here for BLOCKing capability because readAgentEvents currently doesn't expose BLOCK
         const result = await client.xRead([{ key: streamKey, id: lastEventId }], {
           BLOCK: 5000,
           COUNT: 10,
@@ -30,7 +31,10 @@ router.get("/agent/:taskId", async (req: Request, res: Response) => {
           const messages = result[0]!.messages;
           for (const msg of messages) {
             lastEventId = msg.id;
-            const parsed = msg.message.data ? JSON.parse(msg.message.data) : msg.message;
+            const parsed = typeof msg.message.data === "string" 
+              ? JSON.parse(msg.message.data) 
+              : msg.message.data;
+            
             parsed.id = msg.id;
 
             res.write(`id: ${msg.id}\n`);

@@ -60,6 +60,8 @@ router.get("/:chatId", requireAuth, async (req: Request, res: Response) => {
   }
 });
 
+import { runAgentTask } from "../agent/runAgentTask";
+
 router.post(
   "/:chatId/messages",
   requireAuth,
@@ -74,6 +76,12 @@ router.post(
         authReq.user!.id,
         validatedBody.content
       );
+
+      // Execute real AI agent without awaiting 
+      // so HTTP response returns immediately
+      runAgentTask(result.taskId).catch(err => {
+        console.error("Background agent failed:", err);
+      });
 
       res.json(result);
     } catch (error) {

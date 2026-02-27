@@ -50,3 +50,45 @@ export async function redisXRead(
     return await client.xRead(streams, { COUNT: count });
   }
 }
+
+import { AgentEvent, AgentEventSchema } from "@repo/zod-schemas";
+
+export async function appendAgentEvent(taskId: string, event: Omit<AgentEvent, 'id'>): Promise<AgentEvent> {
+  const streamKey = `agent_events:${taskId}`;
+  const id = await redisXAdd(streamKey, { data: JSON.stringify(event) });
+  
+  return {
+    ...event,
+    id,
+  };
+}
+
+export async function readAgentEvents(
+  taskId: string,
+  sinceId: string | null = null,
+  limit: number = 50
+): Promise<AgentEvent[]> {
+  const streamKey = `agent_events:${taskId}`;
+  const startId = sinceId || "0-0";
+  
+  const result = await redisXRead(streamKey, startId, limit);
+  
+  if (!result || result.length === 0) {
+    return [];
+  }
+  
+  const messages = result[0]?.messages || [];
+  
+  return messages.map((msg) => {
+    const rawData = msg.message.data;
+    const parsed = typeof rawData === "string" ? JSON.parse(rawData) : rawData;
+    
+    // Validate with Zod
+    const validated = AgentEventSchema.parse({
+      ...parsed,
+      id: msg.id,
+    });
+    
+    return validated;
+  });
+}

@@ -8,7 +8,7 @@ envChecker();
 
 import { healthCheckDb } from "@repo/db";
 import { healthCheckRedis } from "@repo/redis";
-import { healthCheckQdrant } from "@repo/qdrant";
+import { healthCheckQdrant, ensureDriveVectorsCollection } from "@repo/qdrant";
 import { HealthStatusSchema } from "@repo/zod-schemas";
 
 import chatRouter from "./routes/chats";
@@ -22,6 +22,15 @@ app.use(express.json());
 app.use("/chats", chatRouter);
 app.use("/tasks", tasksRouter);
 app.use("/sse", sseRouter);
+
+import debugRouter from "./routes/debug";
+app.use("/debug", debugRouter);
+
+import { seedDummyData } from "./dev/seedVectorData";
+app.get("/seed", async (req: Request, res: Response) => {
+  await seedDummyData();
+  res.json({ status: "Seeded successfully" });
+});
 
 app.get("/health", async (req: Request, res: Response) => {
   const [dbOk, redisOk, qdrantOk] = await Promise.all([
@@ -46,6 +55,12 @@ app.get("/health", async (req: Request, res: Response) => {
 });
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => {
-  console.log(`Server listening on port ${PORT}`);
+
+ensureDriveVectorsCollection().then(() => {
+  app.listen(PORT, () => {
+    console.log(`Server listening on port ${PORT}`);
+  });
+}).catch((err: any) => {
+  console.error("Failed to ensure Qdrant collection on startup:", err);
+  process.exit(1);
 });
