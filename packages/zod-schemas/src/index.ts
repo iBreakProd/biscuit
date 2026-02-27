@@ -18,3 +18,16 @@ export const HealthStatusSchema = z.object({
 });
 
 export type HealthStatus = z.infer<typeof HealthStatusSchema>;
+
+export const ChatCreateSchema = z.object({});
+
+export const ChatMessageCreateSchema = z.object({
+  content: z.string().min(1),
+});
+
+export const TaskIdSchema = z.string();
+
+export type ChatCreate = z.infer<typeof ChatCreateSchema>;
+export type ChatMessageCreate = z.infer<typeof ChatMessageCreateSchema>;
+export type TaskId = z.infer<typeof TaskIdSchema>;
+

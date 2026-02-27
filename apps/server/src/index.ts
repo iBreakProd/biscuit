@@ -11,9 +11,17 @@ import { healthCheckRedis } from "@repo/redis";
 import { healthCheckQdrant } from "@repo/qdrant";
 import { HealthStatusSchema } from "@repo/zod-schemas";
 
+import chatRouter from "./routes/chats";
+import tasksRouter from "./routes/tasks";
+import sseRouter from "./routes/sse";
+
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+app.use("/chats", chatRouter);
+app.use("/tasks", tasksRouter);
+app.use("/sse", sseRouter);
 
 app.get("/health", async (req: Request, res: Response) => {
   const [dbOk, redisOk, qdrantOk] = await Promise.all([

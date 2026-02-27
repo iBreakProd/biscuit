@@ -29,3 +29,24 @@ export async function healthCheckRedis(): Promise<boolean> {
     return false;
   }
 }
+
+export async function redisXAdd(stream: string, fields: Record<string, string>): Promise<string> {
+  const client = await getRedisClient();
+  return await client.xAdd(stream, "*", fields);
+}
+
+export async function redisXRead(
+  stream: string,
+  lastId: string = "0",
+  count: number = 50,
+  blockMs?: number
+) {
+  const client = await getRedisClient();
+  const streams = [{ key: stream, id: lastId }];
+  
+  if (blockMs !== undefined && blockMs >= 0) {
+    return await client.xRead(streams, { BLOCK: blockMs, COUNT: count });
+  } else {
+    return await client.xRead(streams, { COUNT: count });
+  }
+}
