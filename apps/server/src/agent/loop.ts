@@ -24,46 +24,30 @@ export async function runDynamicAgentLoop(args: {
   let maxStepsReached = false;
   let finalAnswerMarkdown = "";
 
-  const toolDescriptions = `
-Available tools:
-- drive_retrieve: Performs semantic search over the user's indexed Google Drive documents. Use this when needing info about the user's personal knowledge, documents, or synced files. ALWAYS use this if the user asks about their notes, resume, portfolio, or documents.
-- web_search: Searches the web using Tavily for general knowledge, current events, or anything not available in personal Drive documents. Returns a snippet summary.
-- web_scrape: Scrapes a specific webpage URL and extracts its main text content. Use this AFTER web_search when you need the full content of a specific page, or if the user explicitly provides a URL in their prompt.
-`;
-
   const systemPrompt = `You are an autonomous ReAct AI agent. Your goal is to answer the user's request by dynamically choosing tools.
+
+Available tools:
+- drive_retrieve: Searches the user's personal Google Drive documents semantically. ALWAYS the first tool to call for any query.
+- web_search: Searches the web for general knowledge or current events. Only use this AFTER drive_retrieve has already been called AND returned no useful results.
+- web_scrape: Scrapes a specific webpage URL. Use AFTER web_search when you need the full text of a specific page, or when the user gives you a URL.
+
 Constraints:
 1. You have a maximum of ${MAX_STEPS} steps.
-2. CRITICAL: You MUST use the 'drive_retrieve' tool AT LEAST ONCE before providing a 'final_answer', especially for ambiguous names (like "Tarak", "John", etc) or terms. ALWAYS verify if the knowledge exists in the user's Drive first!
-3. If 'drive_retrieve' results do not yield a complete and confident answer, you MUST use 'web_search' to fill in the gaps for more accurate results. You can also do web search if the drive data feel insufficient.
-4. MATURITY CHECK: When using 'web_search', you must evaluate the returned context. If the web search results are completely irrelevant to the underlying intent, discard them and do not hallucinate an answer. Use maturity in your decision to include them in your final answer.
+2. TOOL ORDER IS MANDATORY: You MUST ALWAYS call 'drive_retrieve' first for every query. It is NEVER acceptable to call 'web_search' or 'final_answer' without first calling 'drive_retrieve'.
+3. FALLBACK RULE: Only call 'web_search' if 'drive_retrieve' returned zero relevant results. If drive_retrieve returned useful content, go directly to 'final_answer' using that content.
+4. MATURITY CHECK: If web_search results are irrelevant to the user's intent, discard them. Do NOT hallucinate answers from unrelated results.
 5. Your VERY FIRST action MUST ALWAYS be "plan". DO NOT call tools before planning.
-
-${toolDescriptions}
 
 You MUST output ONLY valid JSON matching EXACTLY one of these three structures. DO NOT wrap it in backticks. DO NOT output ANY conversational text before or after the JSON.
 
-OPTION 1: To plan (MUST act as Step 1):
-{
-  "action": "plan",
-  "plan_steps": ["First step name", "Second step name", "etc..."],
-  "thought_for_next_step": "your thought for what the immediate next step is doing"
-}
+OPTION 1: To plan (MUST be Step 1):
+{"action":"plan","plan_steps":["First step","Second step"],"thought_for_next_step":"your thought"}
 
 OPTION 2: To call a tool:
-{
-  "action": "call_tool",
-  "tool": "drive_retrieve" | "web_search" | "web_scrape",
-  "tool_query": "specific search terms or URL",
-  "thought_for_next_step": "your thought for what the immediate next step is doing"
-}
+{"action":"call_tool","tool":"drive_retrieve | web_search | web_scrape","tool_query":"specific search terms or URL","thought_for_next_step":"your thought"}
 
-OPTION 3: To finish and reply to the user:
-{
-  "action": "final_answer",
-  "final_answer_markdown": "Your detailed final answer to the user in markdown formatting.",
-  "thought": "your final reasoning"
-}
+OPTION 3: To finish:
+{"action":"final_answer","final_answer_markdown":"Your detailed answer in markdown.","thought":"your final reasoning"}
 `;
 
   // We maintain the trajectory history
@@ -75,6 +59,8 @@ OPTION 3: To finish and reply to the user:
 
   let currentStep = 1;
   let nextStepThought = "Analyzing request and creating a preliminary plan...";
+  let driveRetrievedThisTurn = false;
+  let driveHadResults = false;
 
   while (currentStep <= MAX_STEPS) {
     if (Date.now() - startTime > MAX_RUNTIME_MS) {
@@ -149,9 +135,21 @@ OPTION 3: To finish and reply to the user:
         agentTrajectory.push({ role: "user", content: "Plan acknowledged. Proceed with the next action based on your plan." });
 
       } else if (responseJson.action === "call_tool") {
-        const toolToCall = responseJson.tool;
+        let toolToCall = responseJson.tool;
         const toolQuery = responseJson.tool_query || "";
         nextStepThought = responseJson.thought_for_next_step || `Calling ${toolToCall}`;
+
+        // DRIVE-FIRST GUARD: if the LLM tries to web_search before drive_retrieve
+        // has run this turn, force drive_retrieve first.
+        if ((toolToCall === "web_search" || toolToCall === "final_answer") && !driveRetrievedThisTurn) {
+          console.log(`[AgentLoop:${taskId}] Drive-first guard triggered — intercepting ${toolToCall}, running drive_retrieve first.`);
+          agentTrajectory.push({
+            role: "user",
+            content: `SYSTEM OVERRIDE: You must call 'drive_retrieve' before '${toolToCall}'. Please call drive_retrieve now with an appropriate query.`
+          });
+          currentStep++;
+          continue;
+        }
 
         // Emit step execution
         await appendEvent({
@@ -175,9 +173,14 @@ OPTION 3: To finish and reply to the user:
         if (toolToCall === "drive_retrieve") {
           try {
             const results = await driveRetrieveTool({ query: toolQuery, userId });
-            observationSummary = results.citations.length > 0 ? `drive_retrieve returned: ${results.formattedSnippet}` : "drive_retrieve returned no relevant results.";
-            if (results.citations.length > 0) citationsAccumulator.push(...results.citations);
+            driveRetrievedThisTurn = true;
+            driveHadResults = results.citations.length > 0;
+            observationSummary = driveHadResults
+              ? `drive_retrieve returned: ${results.formattedSnippet}`
+              : "drive_retrieve returned no relevant results. You may now use web_search as a fallback.";
+            if (driveHadResults) citationsAccumulator.push(...results.citations);
           } catch (err: any) {
+            driveRetrievedThisTurn = true; // Don't block on failure
             observationSummary = `drive_retrieve failed: ${err.message}`;
           }
         } else if (toolToCall === "web_scrape") {
