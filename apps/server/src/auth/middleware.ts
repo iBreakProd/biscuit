@@ -5,7 +5,6 @@ export interface AuthenticatedRequest extends Request {
   user?: {
     id: string;
     email: string;
-    googleTokens: any;
   };
 }
 
@@ -30,7 +29,6 @@ export const requireAuth = (req: AuthenticatedRequest, res: Response, next: Next
     req.user = {
       id: decoded.id,
       email: decoded.email,
-      googleTokens: decoded.googleTokens,
     };
     
     next();

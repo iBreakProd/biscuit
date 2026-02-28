@@ -1,9 +1,9 @@
 import { Router, Response, Router as ExpressRouter } from "express";
 import { AuthenticatedRequest, requireAuth } from "../auth/middleware";
 import { enqueueDriveFetchJob, enqueueDriveVectorizeJob } from "@repo/redis";
-import { listDriveFilesForUser } from "./client";
+import { listDriveFilesForUser, getDriveClient } from "./client";
 import { db } from "@repo/db";
-import { driveFiles, chunks } from "@repo/db/schemas";
+import { driveFiles, chunks, users } from "@repo/db/schemas";
 import { eq, and } from "drizzle-orm";
 
 const router: ExpressRouter = Router();
@@ -24,7 +24,13 @@ router.post("/sync", requireAuth, async (req: AuthenticatedRequest, res: Respons
   syncRateLimits.set(user.id, now);
 
   try {
-    let files = await listDriveFilesForUser(user.googleTokens);
+    // Load Google refresh token from DB — tokens are NOT stored in JWT anymore (BUG 4 fix)
+    const [userRecord] = await db.select().from(users).where(eq(users.id, user.id)).limit(1);
+    if (!userRecord?.googleRefreshToken) {
+      res.status(401).json({ error: "Google account not connected. Please re-authenticate." });
+      return;
+    }
+    let files = await listDriveFilesForUser({ refresh_token: userRecord.googleRefreshToken });
     
     // Allow limiting the number of synced files for integration tests
     if (req.query.limit) {
@@ -210,23 +216,47 @@ router.post("/files/:fileId/retry", requireAuth, async (req: AuthenticatedReques
             res.status(400).json({ error: "Only failed files can be retried manually." });
             return;
         }
-        
-        // MVP Retry Logic: If it failed, we'll assume it failed during fetch and reset to discovered
-        // If it actually had raw_documents but failed vectorization, we could jump to chunk_pending
-        // We will do a generic fallback to "discovered" for safety unless we do a join checks.
-        
-        await db.update(driveFiles)
-            .set({
-                ingestionPhase: "discovered",
-                retryCount: 0,
-                ingestionError: null,
-                updatedAt: new Date()
-            })
-            .where(eq(driveFiles.id, record.id));
-            
-        await enqueueDriveFetchJob(user.id, fileId);
-        
-        res.status(200).json({ message: "Job re-enqueued", fileId });
+
+        // Spec §8.4: Discriminate retry phase by checking whether raw_documents exists.
+        // If raw text was already extracted → failure occurred in vectorize phase:
+        //   - reset ingestion_phase to "chunk_pending", enqueue drive_vectorize
+        // Otherwise → failure occurred in fetch phase:
+        //   - reset ingestion_phase to "discovered", enqueue drive_fetch
+        const { rawDocuments } = await import("@repo/db/schemas");
+        const existingRawDocs = await db.select({ id: rawDocuments.id })
+            .from(rawDocuments)
+            .where(eq(rawDocuments.fileId, fileId))
+            .limit(1);
+
+        const hadRawText = existingRawDocs.length > 0;
+
+        if (hadRawText) {
+            // Vectorize-phase retry: raw text exists, re-vectorize only
+            await db.update(driveFiles)
+                .set({
+                    ingestionPhase: "chunk_pending",
+                    retryCount: 0,
+                    ingestionError: null,
+                    updatedAt: new Date()
+                })
+                .where(eq(driveFiles.id, record.id));
+
+            await enqueueDriveVectorizeJob(user.id, fileId);
+            res.status(200).json({ message: "Vectorize job re-enqueued (raw text preserved)", fileId, retryPhase: "vectorize" });
+        } else {
+            // Fetch-phase retry: no raw text, start from scratch
+            await db.update(driveFiles)
+                .set({
+                    ingestionPhase: "discovered",
+                    retryCount: 0,
+                    ingestionError: null,
+                    updatedAt: new Date()
+                })
+                .where(eq(driveFiles.id, record.id));
+
+            await enqueueDriveFetchJob(user.id, fileId);
+            res.status(200).json({ message: "Fetch job re-enqueued", fileId, retryPhase: "fetch" });
+        }
     } catch (err: any) {
         console.error("Error retrying file:", err);
         res.status(500).json({ error: "Internal server error" });
@@ -272,7 +302,7 @@ router.get("/chunk/:chunkId", requireAuth, async (req: AuthenticatedRequest, res
             .filter(n => targetIndices.includes(n.index))
             .sort((a, b) => a.index - b.index);
             
-        const enrichedText = relevant.map(r => r.text).join("\\n...\\n");
+        const enrichedText = relevant.map(r => r.text).join("\n...\n");
 
         res.status(200).json({
             chunkId,

@@ -119,6 +119,8 @@ async function processJob(jobData: any, messageId: string) {
                 payload: {
                     user_id: userId,
                     file_id: fileId,
+                    file_name: fileRecord.name,
+                    mime_type: fileRecord.mimeType,
                     chunk_index: chunkIndex,
                     hash: chunkHash
                 }

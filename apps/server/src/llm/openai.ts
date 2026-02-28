@@ -39,6 +39,41 @@ export async function callChatModel(params: {
   return completion.choices[0]?.message?.content || "";
 }
 
+/**
+ * Generates a short, one-sentence thought for a ReAct step.
+ * Used to populate the `thought` field in `reflecting` events.
+ */
+export async function generateStepThought(
+  stepTitle: string,
+  stepDescription: string | undefined,
+  toolToUse: string
+): Promise<string> {
+  if (!process.env.OPENAI_API_KEY) {
+    return `Executing "${stepTitle}" using ${toolToUse}.`;
+  }
+
+  try {
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content:
+            "You are a ReAct agent. In ONE sentence, state your current reasoning for this step. Be direct and concise.",
+        },
+        {
+          role: "user",
+          content: `Step: "${stepTitle}". Description: "${stepDescription || "none"}". Tool I will use: ${toolToUse}. What is my thought?`,
+        },
+      ],
+      max_tokens: 80,
+    });
+    return completion.choices[0]?.message?.content?.trim() || `Using ${toolToUse} for: ${stepTitle}`;
+  } catch {
+    return `Using ${toolToUse} to address: ${stepTitle}`;
+  }
+}
+
 export async function getEmbedding(text: string): Promise<number[]> {
   if (!process.env.OPENAI_API_KEY) {
     // Return a zero vector for local testing without an API key

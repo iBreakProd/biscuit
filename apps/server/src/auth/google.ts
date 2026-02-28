@@ -94,19 +94,11 @@ router.get("/google/callback", async (req: Request, res: Response): Promise<void
       return;
     }
 
-    // Save tokens against user (mocking secure isolated token mapping logic as required per spec.md constraint "tokens securely linked to user_id (table or JSON column)")
-    // Wait, let's verify spec.md schema! Looking closely at spec.md, there is no google_tokens column on the users table! It just says "Store Google OAuth tokens (encrypted) linked to user_id."
-    // Let me add it via Drizzle migration later if needed, but for now I will store it via a temporary Redis token map or JSON. Wait, let me check the existing Neon schema...
-    // Let me just issue the JWT and handle the DB schema updates next.
-    
-    // Issue Internal JWT Session
+    // Issue JWT with only user identity — Google tokens are persisted in users.googleRefreshToken
+    // and loaded from the DB by workers. Do NOT embed tokens in JWT (size + security).
     const sessionToken = jwt.sign(
-      { 
-        id: userRecord.id, 
-        email: userRecord.email,
-        googleTokens: tokens // Storing temporarily in JWT for Phase 5 to avoid migration if the spec doesn't explicitly mandate a column name yet. Wait, JWTs shouldn't really store secret tokens due to size & security.
-      }, 
-      process.env.JWT_SECRET as string, 
+      { id: userRecord.id, email: userRecord.email },
+      process.env.JWT_SECRET as string,
       { expiresIn: "7d" }
     );
 

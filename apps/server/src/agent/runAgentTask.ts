@@ -79,7 +79,7 @@ export async function runAgentTask(taskId: string) {
 
     // 3. Execution Phase
     const citationsAccumulator: any[] = [];
-    const { stepSummaries, timeoutReached } = await executePlannedSteps({
+    const { stepSummaries, timeoutReached, maxStepsReached } = await executePlannedSteps({
       taskId,
       userId: task.userId,
       inputPrompt: userMessageContent,
@@ -90,7 +90,8 @@ export async function runAgentTask(taskId: string) {
       citationsAccumulator
     });
 
-    let finalStatus = timeoutReached ? "timeout" : "running"; // will switch to completed later
+    // Spec §11.2: status is "timeout" if wall-clock exceeded, "max_steps" if agent used all 7 planned steps
+    let finalStatus = timeoutReached ? "timeout" : maxStepsReached ? "max_steps" : "running";
 
     // 4. Summarize and Reflect
     await emit({
@@ -101,7 +102,8 @@ export async function runAgentTask(taskId: string) {
     const { finalAnswerMarkdown } = await finalizeTask({
       userMessage: userMessageContent,
       history: historyRows.slice(0, -1).map(r => ({ role: r.role as "user"| "assistant", content: r.content })), 
-      stepSummaries
+      stepSummaries,
+      citations: citationsAccumulator,
     });
 
     // Extract deduplicated used chunks
@@ -137,7 +139,7 @@ export async function runAgentTask(taskId: string) {
       await tx
         .update(agentTasks)
         .set({
-          status: timeoutReached ? "timeout" : "completed",
+          status: timeoutReached ? "timeout" : maxStepsReached ? "max_steps" : "completed",
           finalAnswerMarkdown,
           stepSummaries: stepSummaries as any,
           usedChunkIds, // Log the chunks for analytics/retrieval checks later

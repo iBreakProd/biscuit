@@ -5,8 +5,9 @@ export async function finalizeTask(args: {
   userMessage: string;
   history: Array<{ role: "system" | "user" | "assistant"; content: string }>;
   stepSummaries: StepSummary[];
+  citations?: Citation[];
 }): Promise<{ finalAnswerMarkdown: string; citations: Citation[] }> {
-  const { userMessage, history, stepSummaries } = args;
+  const { userMessage, history, stepSummaries, citations = [] } = args;
 
   const systemPrompt = `You are an AI assistant that has just completed a sequence of steps to answer the user's request.
 Using the observations gathered during your steps, provide a clear, helpful final answer to the user in markdown format.
@@ -29,6 +30,7 @@ Synthesize this information and answer the user directly. Do not mention the ste
 
   return {
     finalAnswerMarkdown,
-    citations: [], // Emitting citations strictly requires Drive tools
+    citations, // Pass through citations collected by the executor (drive + web)
   };
 }
+
