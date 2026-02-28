@@ -5,7 +5,7 @@ export default function Home() {
   return (
     <>
       <Navbar />
-      <main className="flex flex-col items-center px-6 md:px-24 py-12 w-full max-w-[1600px] mx-auto z-10">
+      <main className="flex flex-col items-center px-6 md:px-24 py-12 w-full max-w-[1600px] mx-auto z-10 overflow-x-hidden">
         <section className="@container w-full relative">
           <div className="flex flex-col gap-12 py-8 lg:flex-row lg:items-center lg:gap-24 lg:py-16">
             <div className="flex flex-col gap-10 lg:w-1/2 relative z-10">
@@ -33,7 +33,7 @@ export default function Home() {
               </div>
             </div>
             <div className="w-full lg:w-1/2 relative">
-              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[140%] h-[140%] bg-linear-to-tr from-white to-transparent rounded-full blur-3xl opacity-40"></div>
+              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full h-full bg-linear-to-tr from-white to-transparent rounded-full blur-3xl opacity-40"></div>
               <div className="relative w-full aspect-4/3 md:aspect-4/3 glass-card rounded-4xl p-4 shadow-levitate animate-float border border-white/60">
                 <div className="w-full h-full rounded-[2.5rem] overflow-hidden relative">
                   <div className="w-full h-full bg-cover bg-center opacity-80 mix-blend-multiply" style={{ backgroundImage: 'url("/images/p-13.jpg")', filter: 'sepia(0.1) contrast(0.95) brightness(1.05) grayscale(0.2)' }}></div>
@@ -207,23 +207,34 @@ export default function Home() {
         </section>
 
         <section className="w-full py-20 px-4">
-          <div className="w-full bg-stone-900 rounded-[4rem] p-10 md:p-32 text-center relative overflow-hidden shadow-2xl shadow-stone-900/10 group">
-            <div className="absolute top-0 right-0 -mr-40 -mt-40 w-[600px] h-[600px] bg-stone-800/40 rounded-full blur-[100px] group-hover:scale-110 transition-transform duration-1000"></div>
-            <div className="absolute bottom-0 left-0 -ml-40 -mb-40 w-[600px] h-[600px] bg-stone-800/60 rounded-full blur-[100px] group-hover:scale-110 transition-transform duration-1000 delay-100"></div>
-            <div className="relative z-10 flex flex-col items-center gap-10">
-              <h2 className="text-pearl-50 text-5xl md:text-7xl font-thin tracking-tight max-w-4xl leading-none font-serif">
-                Ready to chat with <br/> your docs?
+          <div className="w-full bg-stone-900 rounded-[3rem] md:rounded-[4rem] p-8 md:p-32 text-center relative overflow-hidden shadow-2xl shadow-stone-900/10">
+            {/* Ambient blobs — clipped by overflow-hidden so they never scroll */}
+            <div className="absolute top-0 right-0 w-80 h-80 md:w-[500px] md:h-[500px] bg-stone-800/50 rounded-full blur-[80px] -translate-y-1/2 translate-x-1/2"></div>
+            <div className="absolute bottom-0 left-0 w-80 h-80 md:w-[500px] md:h-[500px] bg-stone-700/40 rounded-full blur-[80px] translate-y-1/2 -translate-x-1/2"></div>
+            <div className="relative z-10 flex flex-col items-center gap-8 md:gap-10">
+              <h2 className="text-pearl-50 text-4xl md:text-7xl font-thin tracking-tight max-w-4xl leading-tight font-serif">
+                Ready to chat with your docs?
               </h2>
-              <p className="text-stone-400 text-lg md:text-xl font-light max-w-lg tracking-wide leading-relaxed">
-                Join thousands of developers building the future of knowledge work. Get early access today.
+              <p className="text-stone-400 text-base md:text-xl font-light max-w-sm md:max-w-lg tracking-wide leading-relaxed">
+                Get early access today. No credit card required.
               </p>
-              <div className="flex flex-col md:flex-row w-full max-w-md items-center gap-3 mt-8 p-2.5 bg-white/5 backdrop-blur-md rounded-full border border-white/10 shadow-2xl">
-                <input className="w-full md:flex-1 bg-transparent border-none text-white px-8 py-3 focus:ring-0 placeholder-stone-500 font-light text-sm tracking-wide" placeholder="Enter your email" type="email"/>
-                <a href="/login" className="flex items-center justify-center w-full md:w-auto bg-pearl-100 hover:bg-white text-stone-900 px-10 py-4 rounded-full text-xs font-medium uppercase tracking-[0.15em] transition-all whitespace-nowrap">
-                  Get Access
-                </a>
+              {/* Email CTA — stacked card on mobile, pill row on desktop */}
+              <div className="w-full max-w-md mt-4">
+                <div className="flex flex-col gap-3 bg-white/5 backdrop-blur-md rounded-3xl md:rounded-full border border-white/10 p-3 shadow-2xl">
+                  <input
+                    className="w-full bg-transparent border-none outline-none text-white px-5 py-3 placeholder-stone-500 font-light text-sm tracking-wide rounded-2xl"
+                    placeholder="Enter your email"
+                    type="email"
+                  />
+                  <a
+                    href="/login"
+                    className="flex items-center justify-center w-full bg-white hover:bg-stone-100 text-stone-900 px-8 py-4 rounded-2xl md:rounded-full text-xs font-medium uppercase tracking-[0.15em] transition-all"
+                  >
+                    Get Early Access
+                  </a>
+                </div>
+                <p className="text-stone-600 text-[10px] mt-4 font-light tracking-[0.2em] uppercase">No credit card · Cancel anytime</p>
               </div>
-              <p className="text-stone-500 text-[10px] mt-4 font-light tracking-[0.2em] uppercase">No credit card required. Cancel anytime.</p>
             </div>
           </div>
         </section>

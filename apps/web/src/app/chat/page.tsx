@@ -44,7 +44,7 @@ export default function NewChatPage() {
         bg-stone-100/90 backdrop-blur-xl border-b border-stone-200/70
         shadow-[0_1px_0_rgba(0,0,0,0.06),0_4px_20px_-6px_rgba(0,0,0,0.08)]">
         <div className="w-10 shrink-0 lg:hidden" />
-        <h2 className="text-lg font-serif text-sand-900 tracking-wide">New Conversation</h2>
+        <h2 className="text-lg font-serif text-sand-900 tracking-wide ml-auto lg:ml-0">New Conversation</h2>
       </div>
 
       {/* Content column */}

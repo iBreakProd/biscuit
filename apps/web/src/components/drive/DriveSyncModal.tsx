@@ -95,6 +95,7 @@ export default function DriveSyncModal({
 
           {/* Header */}
           <div className="flex flex-col gap-3 px-4 sm:px-8 py-4 sm:py-6 border-b border-stone-200/50 bg-white/50">
+            {/* Row 1: title + close */}
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <h2 className="text-xl sm:text-2xl font-serif text-sand-900 tracking-wide">Drive Synchronization</h2>
@@ -110,24 +111,25 @@ export default function DriveSyncModal({
                   )}
                 </div>
               </div>
+              <button onClick={onClose} className="p-2 text-stone-400 hover:text-sand-900 hover:bg-stone-100 rounded-full transition-colors shrink-0">
+                <X className="size-5" />
+              </button>
+            </div>
 
-              <div className="flex items-center gap-2 shrink-0">
-                {summary && summary.totals.failed > 0 && (
-                  <button onClick={handleRetryAll} disabled={isRetryingAll}
-                    className="flex items-center gap-2 rounded-full h-10 px-5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-[11px] uppercase tracking-widest font-medium transition-all disabled:opacity-50">
-                    {isRetryingAll ? <Loader2 className="size-3.5 animate-spin" /> : <RotateCcw className="size-3.5" />}
-                    Retry All
-                  </button>
-                )}
-                <button onClick={handleStartSync} disabled={isSyncing}
-                  className="flex items-center gap-2 rounded-full h-10 px-6 bg-stone-900 hover:bg-black text-white text-[11px] uppercase tracking-widest font-medium transition-all shadow-sm disabled:opacity-50">
-                  {isSyncing ? <Loader2 className="size-3.5 animate-spin" /> : <CloudSync className="size-3.5" />}
-                  Sync Now
+            {/* Row 2: action buttons — full-width on mobile, inline on sm+ */}
+            <div className="flex flex-wrap items-center gap-2">
+              {summary && summary.totals.failed > 0 && (
+                <button onClick={handleRetryAll} disabled={isRetryingAll}
+                  className="flex items-center gap-2 rounded-full h-9 px-4 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-[11px] uppercase tracking-widest font-medium transition-all disabled:opacity-50">
+                  {isRetryingAll ? <Loader2 className="size-3.5 animate-spin" /> : <RotateCcw className="size-3.5" />}
+                  Retry All
                 </button>
-                <button onClick={onClose} className="p-2 text-stone-400 hover:text-sand-900 hover:bg-stone-100 rounded-full transition-colors shrink-0">
-                  <X className="size-5" />
-                </button>
-              </div>
+              )}
+              <button onClick={handleStartSync} disabled={isSyncing}
+                className="flex items-center gap-2 rounded-full h-9 px-5 bg-stone-900 hover:bg-black text-white text-[11px] uppercase tracking-widest font-medium transition-all shadow-sm disabled:opacity-50">
+                {isSyncing ? <Loader2 className="size-3.5 animate-spin" /> : <CloudSync className="size-3.5" />}
+                Sync Now
+              </button>
             </div>
 
             {/* 2-col on mobile, 4-col on sm+ */}
@@ -156,7 +158,7 @@ export default function DriveSyncModal({
           {/* Table — horizontal scroll on mobile */}
           <div className="overflow-y-auto bg-stone-50/30 p-2">
             <div className="overflow-x-auto">
-              <div className="border border-white/60 rounded-3xl overflow-hidden bg-white/50 backdrop-blur-sm shadow-sm m-3 min-w-[480px]">
+              <div className="border border-white/60 rounded-3xl overflow-hidden bg-white/50 backdrop-blur-sm shadow-sm m-3">
               {isInitialLoading ? (
                 <div className="divide-y divide-stone-200/30">
                   {[...Array(7)].map((_, i) => (
@@ -178,10 +180,10 @@ export default function DriveSyncModal({
                   <tbody className="divide-y divide-stone-200/30">
                     {summary?.files.filter(f => f.supported).map(file => (
                       <tr key={file.fileId} className="hover:bg-white/60 transition-colors">
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="flex items-center gap-3">
+                         <td className="px-6 py-4 max-w-0 w-full">
+                          <div className="flex items-center gap-3 min-w-0">
                             {renderStatusIcon(file.ingestionPhase)}
-                            <span className="text-sm font-medium text-sand-900 tracking-wide line-clamp-1 max-w-[400px]">{file.name}</span>
+                            <span className="text-sm font-medium text-sand-900 tracking-wide truncate">{file.name}</span>
                           </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap flex items-center justify-between gap-4">
