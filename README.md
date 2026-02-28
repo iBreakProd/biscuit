@@ -2,6 +2,25 @@
 
 **Biscuit** is a chat-based AI backend that lets users talk to a ReAct-style agent that knows their Google Drive. Users connect their Drive, index their documents, and then query them via Retrieval-Augmented Generation — the agent handles planning, tool selection, observation, and final answer generation in a streaming loop backed by Redis Streams and served over SSE.
 
+## 🎥 Demo Videos
+
+<a href="https://youtu.be/TjfJBwqrWIc" target="_blank">
+  <img src="https://img.youtube.com/vi/TjfJBwqrWIc/maxresdefault.jpg" width="560" alt="Login Flow with Drive Sync">
+</a>  
+<p><b>Login Flow with Drive Sync</b></p>
+
+<a href="https://youtu.be/LYEhh0ZQyf0" target="_blank">
+  <img src="https://img.youtube.com/vi/LYEhh0ZQyf0/maxresdefault.jpg" width="560" alt="Drive Search Retrieval">
+</a>  
+<p><b>Drive Search Retrieval</b></p>
+
+<a href="https://youtu.be/4GTol962uBc" target="_blank">
+  <img src="https://img.youtube.com/vi/4GTol962uBc/maxresdefault.jpg" width="560" alt="Web Search and Scrape Retrieval">
+</a>  
+<p><b>Web Search and Scrape Retrieval</b></p>
+
+
+
 ![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=flat&logo=typescript&logoColor=white)
 ![Node.js](https://img.shields.io/badge/Node.js-339933?style=flat&logo=node.js&logoColor=white)
 ![Next.js](https://img.shields.io/badge/Next.js-000000?style=flat&logo=next.js&logoColor=white)
