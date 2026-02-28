@@ -1,0 +1,19 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - server.yaml
+  - worker-drive-fetch.yaml
+  - worker-drive-vectorize.yaml
+  - keda-scaledobjects.yaml
+
+images:
+  - name: my-registry/biscuit-server
+    newName: ghcr.io/username/biscuit-server
+    newTag: latest
+  - name: my-registry/biscuit-worker-drive-fetch
+    newName: ghcr.io/username/biscuit-worker-drive-fetch
+    newTag: latest
+  - name: my-registry/biscuit-worker-drive-vectorize
+    newName: ghcr.io/username/biscuit-worker-drive-vectorize
+    newTag: latest

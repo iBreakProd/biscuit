@@ -12,11 +12,12 @@ spec:
   minReplicaCount: 0
   maxReplicaCount: 5
   triggers:
-  - type: redis
+  - type: redis-streams
     metadata:
       addressFromEnv: REDIS_URL
-      listName: drive_fetch:0  # The queue/stream name
-      listLength: "1"          # Scale out on 1 queue item
+      stream: "drive_fetch:0"           # Stream Name
+      consumerGroup: "drive-fetch-workers"  # Consumer Group
+      pendingEntriesCount: "5"          # Scale up per 5 pending entries
 ---
 apiVersion: keda.sh/v1alpha1
 kind: ScaledObject
@@ -32,8 +33,9 @@ spec:
   minReplicaCount: 0
   maxReplicaCount: 5
   triggers:
-  - type: redis
+  - type: redis-streams
     metadata:
       addressFromEnv: REDIS_URL
-      listName: drive_vectorize:0  # The queue/stream name
-      listLength: "1"              # Scale out on 1 queue item
+      stream: "drive_vectorize:0"           # Stream Name
+      consumerGroup: "drive-vectorize-workers"  # Consumer Group
+      pendingEntriesCount: "5"              # Scale up per 5 pending entries

@@ -80,43 +80,51 @@ jobs:
           host: ${{ secrets.SSH_IP }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          script: mkdir -p ~/biscuit-agent
+          script: |
+            mkdir -p ~/biscuit-agent
+            mkdir -p ~/biscuit-agent/k8s
 
-      - name: Copy docker-compose to vm
+      - name: Copy k8s manifests to vm
         uses: appleboy/scp-action@v1
         with:
           host: ${{ secrets.SSH_IP }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          source: "docker-compose.production.yml"
+          source: "k8s/*"
           target: "~/biscuit-agent/"
 
-      - name: Deploy via SSH
+      - name: Deploy to Kubernetes via SSH
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.SSH_IP }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
-            cd ~/biscuit-agent
-            echo ${{ secrets.DOCKERHUB_TOKEN }} | docker login -u ${{ secrets.DOCKERHUB_USERNAME }} --password-stdin
+            cd ~/biscuit-agent/k8s
 
-            cat <<EOF > .env.biscuit.production
-            DOCKERHUB_IMAGE_PREFIX=${{ secrets.DOCKERHUB_USERNAME }}/biscuit
-            IMAGE_TAG=${{ github.sha }}
-            NODE_ENV=production
-            DATABASE_URL=${{ secrets.DATABASE_URL }}
-            REDIS_URL=redis://redis:6379
-            GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }}
-            GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }}
-            GOOGLE_REDIRECT_URI=${{ secrets.GOOGLE_REDIRECT_URI }}
-            FRONTEND_URL=${{ secrets.FRONTEND_URL }}
-            JWT_SECRET=${{ secrets.JWT_SECRET }}
-            OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
-            TAVILY_API_KEY=${{ secrets.TAVILY_API_KEY }}
-            QDRANT_URL=${{ secrets.QDRANT_URL }}
-            QDRANT_API_KEY=${{ secrets.QDRANT_API_KEY }}
-            EOF
+            # Set up the secrets for K8s
+            kubectl create secret generic biscuit-secrets \
+              --from-literal=DATABASE_URL="${{ secrets.DATABASE_URL }}" \
+              --from-literal=REDIS_URL="${{ secrets.REDIS_URL }}" \
+              --from-literal=GOOGLE_CLIENT_ID="${{ secrets.GOOGLE_CLIENT_ID }}" \
+              --from-literal=GOOGLE_CLIENT_SECRET="${{ secrets.GOOGLE_CLIENT_SECRET }}" \
+              --from-literal=GOOGLE_REDIRECT_URI="${{ secrets.GOOGLE_REDIRECT_URI }}" \
+              --from-literal=FRONTEND_URL="${{ secrets.FRONTEND_URL }}" \
+              --from-literal=JWT_SECRET="${{ secrets.JWT_SECRET }}" \
+              --from-literal=OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}" \
+              --from-literal=TAVILY_API_KEY="${{ secrets.TAVILY_API_KEY }}" \
+              --from-literal=QDRANT_URL="${{ secrets.QDRANT_URL }}" \
+              --from-literal=QDRANT_API_KEY="${{ secrets.QDRANT_API_KEY }}" \
+              --dry-run=client -o yaml | kubectl apply -f -
 
-            docker compose -f docker-compose.production.yml pull
-            docker compose -f docker-compose.production.yml --env-file .env.biscuit.production up -d
+            # Update Kustomize image tags
+            # We use sed as a fallback if kustomize CLI is absent
+            sed -i "s|ghcr.io/username/biscuit-server:latest|${{ secrets.DOCKERHUB_USERNAME }}/biscuit-server:${{ github.sha }}|g" kustomization.yaml
+            sed -i "s|ghcr.io/username/biscuit-worker-drive-fetch:latest|${{ secrets.DOCKERHUB_USERNAME }}/biscuit-worker-drive-fetch:${{ github.sha }}|g" kustomization.yaml
+            sed -i "s|ghcr.io/username/biscuit-worker-drive-vectorize:latest|${{ secrets.DOCKERHUB_USERNAME }}/biscuit-worker-drive-vectorize:${{ github.sha }}|g" kustomization.yaml
+
+            # Apply the manifest
+            kubectl apply -k .
+
+            # Restart deployments to ensure new configs pick up
+            kubectl rollout restart deployment server worker-drive-fetch worker-drive-vectorize
