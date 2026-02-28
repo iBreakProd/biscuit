@@ -3,9 +3,7 @@ import { agentTasks, chatMessages } from "@repo/db/schemas";
 import { appendAgentEvent } from "@repo/redis";
 import { eq, asc, max } from "drizzle-orm";
 
-import { planTask } from "./planner";
-import { executePlannedSteps, AgentEventInput } from "./executor";
-import { finalizeTask } from "./finalizer";
+import { runDynamicAgentLoop, AgentEventInput } from "./loop";
 
 /**
  * Orchestrates the full 7-step ReAct agent lifecycle with real LLM
@@ -52,45 +50,34 @@ export async function runAgentTask(taskId: string) {
     };
 
     const startTime = Date.now();
-    const MAX_RUNTIME_MS = 60 * 1000;
+    const MAX_RUNTIME_MS = 120 * 1000;
 
+    console.log(`\n================================`);
+    console.log(`[AgentTask:${taskId}] STARTED`);
+    console.log(`Prompt: "${userMessageContent}"`);
+    console.log(`================================`);
+    
     await emit({
       type: "start",
       title: "Agent started processing task",
     });
 
-    // 2. Planning phase
-    const availableTools = ["drive_retrieve", "vector_search", "web_search", "web_scrape"];
-    
+    // 2. Execution Phase (Dynamic ReAct Loop)    
     await emit({
       type: "plan",
-      title: "Planning actions",
-      thought: "Analyzing request and available tools..."
+      title: "Initializing Agent",
+      thought: "Preparing dynamic tool orchestration..."
     });
 
-    const { steps } = await planTask({
-      userMessage: userMessageContent,
-      history,
-      availableTools,
-    });
-    
-    await emit({
-      type: "step_planned",
-      title: "Plan created",
-      totalSteps: steps.length,
-    });
-
-    if (Date.now() - startTime >= MAX_RUNTIME_MS) {
-       throw new Error("Task timed out before execution phase");
-    }
-
-    // 3. Execution Phase
     const citationsAccumulator: any[] = [];
-    const { stepSummaries, timeoutReached, maxStepsReached } = await executePlannedSteps({
+    
+    console.log(`[AgentTask:${taskId}] Entering Dynamic ReAct Loop...`);
+    
+    const { finalAnswerMarkdown, stepSummaries, timeoutReached, maxStepsReached } = await runDynamicAgentLoop({
       taskId,
       userId: task.userId,
       inputPrompt: userMessageContent,
-      steps,
+      history,
       appendEvent: async (ev) => {
         await appendAgentEvent(taskId, ev);
       },
@@ -98,37 +85,20 @@ export async function runAgentTask(taskId: string) {
       startTime
     });
 
-    // Spec §11.2: status is "timeout" if wall-clock exceeded, "max_steps" if agent used all 7 planned steps
+    // Spec §11.2: status is "timeout" if wall-clock exceeded, "max_steps" if agent hit loop limit
     let finalStatus = timeoutReached ? "timeout" : maxStepsReached ? "max_steps" : "running";
-
-    // 4. Summarize and Reflect
-    await emit({
-      type: "reflecting",
-      title: "Finalizing response",
-    });
-    
-    let finalAnswerMarkdown = "";
-    if (timeoutReached) {
-       finalAnswerMarkdown = "Task timed out after 60 seconds.";
-    } else {
-       const finalizerObj = await finalizeTask({
-         userMessage: userMessageContent,
-         history: historyRows.slice(0, -1).map(r => ({ role: r.role as "user"| "assistant", content: r.content })), 
-         stepSummaries,
-         citations: citationsAccumulator,
-       });
-       finalAnswerMarkdown = finalizerObj.finalAnswerMarkdown;
-    }
+    console.log(`[AgentTask:${taskId}] Execution loop ended. Status: ${finalStatus}. Citations found: ${citationsAccumulator.length}`);
 
     // Extract deduplicated used chunks
     const usedChunkIds = Array.from(new Set(citationsAccumulator.filter(c => c.type === "drive").map(c => c.chunkId)));
 
-    // 5. Build final event
+    // 4. Build final event
     await emit({
       type: "finish",
       finalAnswerMarkdown,
       citations: citationsAccumulator, 
     });
+    console.log(`[AgentTask:${taskId}] Finished and emitted final answer.`);
 
     // 6. Push LLM output to Database sequentially
     await db.transaction(async (tx) => {

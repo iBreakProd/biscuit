@@ -91,8 +91,8 @@ async function processJob(jobData: any, messageId: string) {
     
     console.log(`[Job ${messageId}] Created ${textChunks.length} chunks. Generating embeddings...`);
 
-    // 5. Generate Embeddings & Upsert (Process in batches of 10 to avoid huge requests)
-    const BATCH_SIZE = 10;
+    // 5. Generate Embeddings & Upsert (Process in batches of 50 to maximize throughput and avoid large document bottlenecks)
+    const BATCH_SIZE = 50;
     for (let i = 0; i < textChunks.length; i += BATCH_SIZE) {
         const batchChunks = textChunks.slice(i, i + BATCH_SIZE);
         

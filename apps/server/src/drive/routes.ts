@@ -3,7 +3,7 @@ import { AuthenticatedRequest, requireAuth } from "../auth/middleware";
 import { enqueueDriveFetchJob, enqueueDriveVectorizeJob } from "@repo/redis";
 import { listDriveFilesForUser, getDriveClient } from "./client";
 import { db } from "@repo/db";
-import { driveFiles, chunks, users } from "@repo/db/schemas";
+import { driveFiles, chunks, users, rawDocuments } from "@repo/db/schemas";
 import { eq, and } from "drizzle-orm";
 
 const router: ExpressRouter = Router();
@@ -222,7 +222,7 @@ router.post("/files/:fileId/retry", requireAuth, async (req: AuthenticatedReques
         //   - reset ingestion_phase to "chunk_pending", enqueue drive_vectorize
         // Otherwise → failure occurred in fetch phase:
         //   - reset ingestion_phase to "discovered", enqueue drive_fetch
-        const { rawDocuments } = await import("@repo/db/schemas");
+        // rawDocuments is imported at the top of this file
         const existingRawDocs = await db.select({ id: rawDocuments.id })
             .from(rawDocuments)
             .where(eq(rawDocuments.fileId, fileId))

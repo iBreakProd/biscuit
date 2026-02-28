@@ -6,13 +6,72 @@ import {
   appendUserMessageWithTask,
 } from "../chat/service";
 import { requireAuth, AuthenticatedRequest } from "../auth/middleware";
+import { db } from "@repo/db";
+import { chatRooms, agentTasks } from "@repo/db/schemas";
+import { eq, desc, and } from "drizzle-orm";
 
 const router: Router = Router();
 
-router.post("/", requireAuth, async (req: Request, res: Response) => {
+// List all chats for the authenticated user
+router.get("/", requireAuth, async (req: Request, res: Response) => {
   try {
     const authReq = req as AuthenticatedRequest;
-    const chat = await createChat(authReq.user!.id);
+    const chats = await db
+      .select()
+      .from(chatRooms)
+      .where(eq(chatRooms.userId, authReq.user!.id))
+      .orderBy(desc(chatRooms.updatedAt));
+    res.json({ chats });
+  } catch (error) {
+    console.error("Failed to list chats", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Update chat title
+router.patch("/:chatId", requireAuth, async (req: Request, res: Response) => {
+  try {
+    const authReq = req as AuthenticatedRequest;
+    const chatId = req.params.chatId as string;
+    const { title } = req.body as { title: string };
+    if (!title) { res.status(400).json({ error: "title required" }); return; }
+    const [updated] = await db
+      .update(chatRooms)
+      .set({ title: title.substring(0, 80) })
+      .where(and(eq(chatRooms.id, chatId), eq(chatRooms.userId, authReq.user!.id)))
+      .returning();
+    res.json(updated);
+  } catch (error) {
+    console.error("Failed to update chat", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.post("/", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const authReq = req as AuthenticatedRequest;
+    const { initialMessage } = req.body as { initialMessage?: string };
+
+    const title = initialMessage ? initialMessage.substring(0, 60) : undefined;
+    const chat = await createChat(authReq.user!.id, title);
+
+    if (initialMessage) {
+      if (activeAgentTasks >= MAX_CONCURRENT_TASKS) {
+        res.status(429).json({ error: "Too many active tasks. Please try again later." });
+        return;
+      }
+      activeAgentTasks++;
+      const result = await appendUserMessageWithTask(chat.id, authReq.user!.id, initialMessage.trim());
+      runAgentTask(result.taskId).catch(err => {
+        console.error("Background agent failed:", err);
+      }).finally(() => {
+        activeAgentTasks--;
+      });
+
+      res.json({ ...chat, initialTaskId: result.taskId });
+      return;
+    }
+
     res.json(chat);
   } catch (error) {
     console.error("Failed to create chat", error);

@@ -2,11 +2,12 @@ import { db } from "@repo/db";
 import { chatRooms, chatMessages, agentTasks } from "@repo/db/schemas";
 import { eq, desc, max, asc } from "drizzle-orm";
 
-export async function createChat(userId: string) {
+export async function createChat(userId: string, title?: string) {
   const [chat] = await db
     .insert(chatRooms)
     .values({
       userId,
+      title: title?.substring(0, 80) || null,
     })
     .returning();
 
@@ -32,7 +33,18 @@ export async function getChatWithMessages(chatId: string, limit: number = 50) {
     .orderBy(asc(chatMessages.sequence))
     .limit(limit);
 
-  return { chat, messages };
+  // Load tasks keyed by id for citation lookup
+  const taskIds = messages.map(m => m.agentTaskId).filter(Boolean) as string[];
+  const tasks: Record<string, any> = {};
+  if (taskIds.length > 0) {
+    const taskRows = await db
+      .select()
+      .from(agentTasks)
+      .where(eq(agentTasks.chatId, chatId));
+    taskRows.forEach(t => { tasks[t.id] = t; });
+  }
+
+  return { chat, messages, tasks };
 }
 
 export async function appendUserMessageWithTask(

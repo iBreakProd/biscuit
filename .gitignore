@@ -38,3 +38,5 @@ yarn-error.log*
 *.pem
 
 spec.md
+frontend_spec.md
+reference-landing-v4.html

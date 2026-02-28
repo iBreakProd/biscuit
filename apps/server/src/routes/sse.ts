@@ -1,5 +1,5 @@
 import { Router, Request, Response } from "express";
-import { getRedisClient, readAgentEvents } from "@repo/redis";
+import { getIsolatedRedisClient, readAgentEvents } from "@repo/redis";
 import { TaskIdSchema, AgentEventsQuerySchema } from "@repo/zod-schemas";
 
 const router: Router = Router();
@@ -16,7 +16,7 @@ router.get("/agent/:taskId", async (req: Request, res: Response) => {
 
     res.write(`data: ${JSON.stringify({ message: "connected" })}\n\n`);
 
-    const client = await getRedisClient();
+    const client = await getIsolatedRedisClient();
 
     // Loop for long-polling the redis stream
     const interval = setInterval(async () => {
@@ -55,6 +55,7 @@ router.get("/agent/:taskId", async (req: Request, res: Response) => {
 
     req.on("close", () => {
       clearInterval(interval);
+      client.disconnect().catch(err => console.error("Error disconnecting isolated SSE redis client:", err));
     });
   } catch (error) {
     console.error("SSE stream failed", error);

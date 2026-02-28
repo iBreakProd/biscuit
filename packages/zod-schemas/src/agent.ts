@@ -39,6 +39,7 @@ export const AgentEventSchema = z.object({
   totalSteps: z.number().optional(),
   title: z.string().optional(),
   thought: z.string().optional(),
+  plan: z.array(z.string()).optional(),
   tools: z.array(z.string()).optional(),
   observationSummary: z.string().optional(),
 

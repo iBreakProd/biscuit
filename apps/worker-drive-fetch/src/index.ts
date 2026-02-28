@@ -6,7 +6,7 @@ import { driveFiles, rawDocuments, users } from "@repo/db/schemas";
 import { eq } from "drizzle-orm";
 import { google } from "googleapis";
 import crypto from "crypto";
-const pdf_parse = require("pdf-parse");
+import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf.mjs";
 import mammoth from "mammoth";
 
 const STREAM_NAME = "drive_fetch:0";
@@ -34,19 +34,51 @@ async function getDriveClient(userId: string) {
     return google.drive({ version: "v3", auth: oauth2Client });
 }
 
-async function extractTextFromBuffer(buffer: Buffer, mimeType: string): Promise<string> {
+async function extractTextFromBuffer(buffer: Buffer, mimeType: string, logPrefix: string): Promise<string> {
+    console.log(`${logPrefix} [Extract] mimeType=${mimeType} bufferSize=${buffer.length} bytes`);
+
     if (mimeType === "application/pdf") {
-        const data = await pdf_parse(buffer);
-        return data.text;
+        console.log(`${logPrefix} [Extract] Invoking pdfjs-dist on ${buffer.length}-byte buffer...`);
+        try {
+            // pdfjs-dist works on Uint8Array
+            const uint8 = new Uint8Array(buffer);
+            const loadingTask = pdfjsLib.getDocument({ data: uint8, useSystemFonts: true });
+            const pdfDoc = await loadingTask.promise;
+            console.log(`${logPrefix} [Extract] PDF loaded. numPages=${pdfDoc.numPages}`);
+            
+            const textPages: string[] = [];
+            for (let p = 1; p <= pdfDoc.numPages; p++) {
+                const page = await pdfDoc.getPage(p);
+                const content = await page.getTextContent();
+                const pageText = content.items
+                    .filter((item: any) => "str" in item)
+                    .map((item: any) => item.str)
+                    .join(" ");
+                textPages.push(pageText);
+            }
+            const combined = textPages.join("\n");
+            console.log(`${logPrefix} [Extract] PDF extracted. pages=${pdfDoc.numPages} totalLen=${combined.length}`);
+            if (!combined.trim()) {
+                console.warn(`${logPrefix} [Extract] PDF produced empty text — may be a scanned image-only document.`);
+            }
+            return combined;
+        } catch (pdfErr: any) {
+            console.error(`${logPrefix} [Extract] pdfjs-dist error:`, pdfErr?.message ?? pdfErr);
+            throw pdfErr;
+        }
     } else if (mimeType === "application/vnd.google-apps.document" || mimeType === "application/vnd.google-apps.presentation" || mimeType === "application/vnd.google-apps.spreadsheet") {
-         // Google docs export as text/plain normally, if not we handle it here
-         return buffer.toString("utf8"); // Fallback, we'll try to export these correctly in the downloader
+         // Google docs exported as text/plain
+         const text = buffer.toString("utf8");
+         console.log(`${logPrefix} [Extract] Google Doc exported. textLen=${text.length}`);
+         return text;
     } else if (mimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") { // docx
         const result = await mammoth.extractRawText({ buffer });
+        console.log(`${logPrefix} [Extract] docx parsed. textLen=${result.value.length}`);
         return result.value;
     } else if (mimeType.startsWith("text/") || mimeType === "application/json" || mimeType === "application/csv") {
-        // Plain text, CSV, Markdown, etc.
-        return buffer.toString("utf8");
+        const text = buffer.toString("utf8");
+        console.log(`${logPrefix} [Extract] Plain-text decoded. textLen=${text.length}`);
+        return text;
     } else {
         throw new Error(`Unsupported MIME type for text extraction: ${mimeType}`);
     }
@@ -66,9 +98,12 @@ async function processJob(jobData: any, messageId: string) {
         return;
     }
     
+    const LOG = `[Job ${messageId}][${fileRecord.name ?? fileId}]`;
+
     try {
         // 1. Mark phase as Fetching
-        await db.update(driveFiles).set({ ingestionPhase: "fetching", updatedAt: new Date() }).where(eq(driveFiles.id, fileRecord.id));
+        console.log(`${LOG} Starting fetch. mimeType=${fileRecord.mimeType}`);
+        await db.update(driveFiles).set({ ingestionPhase: "fetching", ingestionError: null, updatedAt: new Date() }).where(eq(driveFiles.id, fileRecord.id));
         
         // 2. Init Drive Client
         const drive = await getDriveClient(userId);
@@ -83,17 +118,21 @@ async function processJob(jobData: any, messageId: string) {
                 "application/vnd.google-apps.presentation": "text/plain"
             };
             const targetMime = exportMimeMap[fileRecord.mimeType] || "text/plain";
+            console.log(`${LOG} Exporting Google Workspace file as ${targetMime}...`);
             const response = await drive.files.export({ fileId, mimeType: targetMime }, { responseType: "arraybuffer" });
             fileBuffer = Buffer.from(response.data as ArrayBuffer);
+            console.log(`${LOG} Export complete. buffer=${fileBuffer.length} bytes`);
             fileRecord.mimeType = targetMime; // Overwrite for extraction hook
         } else {
             // Standard files just get GET
+            console.log(`${LOG} Downloading file via GET...`);
             const response = await drive.files.get({ fileId, alt: "media" }, { responseType: "arraybuffer" });
             fileBuffer = Buffer.from(response.data as ArrayBuffer);
+            console.log(`${LOG} Download complete. buffer=${fileBuffer.length} bytes`);
         }
         
         // 4. Extract Text
-        let rawText = await extractTextFromBuffer(fileBuffer, fileRecord.mimeType);
+        let rawText = await extractTextFromBuffer(fileBuffer, fileRecord.mimeType, LOG);
         fileBuffer = null; // free memory
         
         // Hard constraint: Truncate at 100k
@@ -129,6 +168,7 @@ async function processJob(jobData: any, messageId: string) {
         console.log(`[Job ${messageId}] ✅ Completed Fetch. Queued Vectorize for ${fileId}.`);
         
     } catch (err: any) {
+        const errMsg = err.message?.substring(0, 1000) || "Unknown Error";
         // Handle Retries
         let isPermanent = false;
         if (err.response?.status && err.response.status >= 400 && err.response.status < 500) {
@@ -136,20 +176,22 @@ async function processJob(jobData: any, messageId: string) {
         }
         
         const currentRetries = fileRecord.retryCount || 0;
+        const LOG = `[Job ${messageId}][${fileRecord.name ?? fileId}]`;
         
         if (isPermanent || currentRetries >= 2) {
-             console.error(`[Job ${messageId}] 💥 Terminal failure fetching ${fileId}. Permanent=${isPermanent}, Retry=${currentRetries}.`);
+             console.error(`${LOG} 💥 Terminal failure. Permanent=${isPermanent}, Retries=${currentRetries}. Error: ${errMsg}`);
              await db.update(driveFiles).set({
                  ingestionPhase: "failed",
-                 ingestionError: err.message?.substring(0, 1000) || "Unknown Error",
+                 ingestionError: errMsg,
                  updatedAt: new Date()
              }).where(eq(driveFiles.id, fileRecord.id));
         } else {
-             console.error(`[Job ${messageId}] ⚠️ Retryable failure fetching ${fileId}. Retry=${currentRetries}. Delaying...`);
+             console.error(`${LOG} ⚠️ Retryable failure. Attempt ${currentRetries + 1}/3. Error: ${errMsg}`);
+             // Always persist the latest error so UI can show it even during retrying
              await db.update(driveFiles).set({
                  retryCount: currentRetries + 1,
                  lastRetryAt: new Date(),
-                 ingestionError: err.message?.substring(0, 1000),
+                 ingestionError: errMsg,
                  updatedAt: new Date()
              }).where(eq(driveFiles.id, fileRecord.id));
              

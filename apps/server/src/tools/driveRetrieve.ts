@@ -3,7 +3,7 @@ import { searchDriveVectors } from "@repo/qdrant";
 import { db } from "@repo/db";
 import { chunks, driveFiles } from "@repo/db/schemas";
 import { DriveCitation, DriveRetrieveInput } from "@repo/zod-schemas";
-import { inArray, eq } from "drizzle-orm";
+import { inArray, eq, and } from "drizzle-orm";
 
 export async function driveRetrieveTool(input: DriveRetrieveInput): Promise<{ formattedSnippet: string, citations: DriveCitation[] }> {
   console.log(`[drive_retrieve] Starting search for userId=${input.userId}, query="${input.query.substring(0, 80)}"`);
@@ -12,8 +12,8 @@ export async function driveRetrieveTool(input: DriveRetrieveInput): Promise<{ fo
   const queryEmbedding = await getEmbedding(input.query);
   console.log(`[drive_retrieve] Embedded query (dim=${queryEmbedding.length})`);
 
-  // 2. Search Qdrant (hard cutoff of 0.3)
-  const topK = input.topK || 10;
+  // 2. Search Qdrant (hard cutoff of 0.2)
+  const topK = input.topK || 20;
   let searchResults: Awaited<ReturnType<typeof searchDriveVectors>>;
   try {
     searchResults = await searchDriveVectors(queryEmbedding, input.userId, topK);
@@ -25,7 +25,7 @@ export async function driveRetrieveTool(input: DriveRetrieveInput): Promise<{ fo
   }
 
   const validHits = searchResults.filter(hit => hit.score >= 0.2);
-  console.log(`[drive_retrieve] ${validHits.length} hits passed the 0.3 score cutoff`);
+  console.log(`[drive_retrieve] ${validHits.length} hits passed the 0.2 score cutoff`);
 
   if (validHits.length === 0) {
     return {
@@ -57,50 +57,56 @@ export async function driveRetrieveTool(input: DriveRetrieveInput): Promise<{ fo
   const scoreMap = new Map<string, number>();
   validHits.forEach(h => scoreMap.set(String(h.id), h.score));
 
-  // 4. Gather neighbor texts for context enrichment (±1 chunk)
-  const enrichedContexts: Array<{ chunkId: string; fileId: string; fileName: string; mimeType: string; score: number; enrichedText: string; }> = [];
-
+  // 4. Group chunks by fileId to deduplicate and compress context
+  const fileGroups = new Map<string, Array<{ chunkId: string; fileName: string; mimeType: string; score: number; text: string; }>>();
+  
   for (const c of dbChunks) {
-    const localNeighbors = await db
-      .select({ text: chunks.text, index: chunks.chunkIndex })
-      .from(chunks)
-      .where(eq(chunks.fileId, c.fileId));
-
-    const targetIndices = [c.chunkIndex - 1, c.chunkIndex, c.chunkIndex + 1];
-    const relevant = localNeighbors
-      .filter(n => targetIndices.includes(n.index))
-      .sort((a, b) => a.index - b.index);
-
-    const enrichedText = relevant.map(r => r.text).join("\n...\n");
-
-    enrichedContexts.push({
+    if (!fileGroups.has(c.fileId)) {
+      fileGroups.set(c.fileId, []);
+    }
+    fileGroups.get(c.fileId)!.push({
       chunkId: c.id,
-      fileId: c.fileId,
       fileName: c.fileName || "Unknown File",
       mimeType: c.mimeType || "text/plain",
       score: scoreMap.get(c.id) || 0,
-      enrichedText
+      text: c.text
     });
   }
 
-  // 5. Deduplicate and cap at 15 snippets
-  const uniqueEnriched = enrichedContexts.filter((v, i, a) =>
-    a.findIndex(t => t.fileId === v.fileId && t.chunkId === v.chunkId) === i
-  );
-  const cappedContexts = uniqueEnriched.slice(0, 15);
+  const formattedSnippetParts: string[] = [];
+  const citations: DriveCitation[] = [];
 
-  console.log(`[drive_retrieve] Returning ${cappedContexts.length} unique enriched chunks as citations`);
+  for (const [fileId, contexts] of fileGroups.entries()) {
+    // Sort chunks by score descending so we prioritize the most relevant text within the file
+    contexts.sort((a, b) => b.score - a.score);
+    
+    const highestScore = contexts[0]?.score || 0;
+    const sampleContext = contexts[0]!;
+    
+    // Take at most the top 2 highly relevant chunks per file to save LLM context window space
+    const topChunks = contexts.slice(0, 2);
+    
+    const combinedText = topChunks.map((c, idx) => `[Relevant Snippet ${idx + 1}]\n${c.text}`).join("\n\n");
+    
+    formattedSnippetParts.push(`[Source File: ${sampleContext.fileName} (ID: ${fileId})]\n${combinedText}`);
+    
+    citations.push({
+      type: "drive",
+      chunkId: topChunks.map(c => c.chunkId).join(","), 
+      fileId: fileId,
+      fileName: sampleContext.fileName,
+      mimeType: sampleContext.mimeType,
+      score: highestScore
+    });
+  }
 
-  const formattedSnippet = cappedContexts.map(c => `[File: ${c.fileName} (ID: ${c.fileId})]\n${c.enrichedText}`).join("\n\n---\n\n");
+  // Cap top citations so LLM prompt doesn't explode (e.g., max 5 unique files)
+  const cappedCitations = citations.slice(0, 5);
+  const cappedFormattedSnippetParts = formattedSnippetParts.slice(0, 5);
 
-  const citations: DriveCitation[] = cappedContexts.map(c => ({
-    type: "drive",
-    chunkId: c.chunkId,
-    fileId: c.fileId,
-    fileName: c.fileName,
-    mimeType: c.mimeType,
-    score: c.score
-  }));
+  console.log(`[drive_retrieve] Returning ${cappedCitations.length} grouped file citations`);
 
-  return { formattedSnippet, citations };
+  const formattedSnippet = cappedFormattedSnippetParts.join("\n\n---\n\n");
+
+  return { formattedSnippet, citations: cappedCitations };
 }

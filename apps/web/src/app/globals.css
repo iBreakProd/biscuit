@@ -1,0 +1,109 @@
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #a8a29e;
+  --color-secondary: #d6d3d1;
+  --color-pearl-50: #fdfcfc;
+  --color-pearl-100: #fbfaf9;
+  --color-pearl-200: #f7f5f4;
+  --color-ivory-100: #fffff0;
+  --color-sand-300: #e7e0d3;
+  --color-sand-900: #292524;
+  --color-stone-850: #1c1917;
+
+  --font-sans: "Manrope", sans-serif;
+  --font-serif: "Cormorant Garamond", serif;
+
+  --shadow-glow: 0 0 30px -10px rgba(220, 215, 205, 0.4), 0 20px 60px -20px rgba(0, 0, 0, 0.03);
+  --shadow-glow-hover: 0 0 50px -10px rgba(220, 215, 205, 0.6), 0 30px 80px -20px rgba(0, 0, 0, 0.06);
+  --shadow-float: 0 30px 60px -10px rgba(0, 0, 0, 0.08), 0 12px 24px -8px rgba(0, 0, 0, 0.04);
+  --shadow-levitate: 0 35px 70px -15px rgba(50, 40, 30, 0.08), 0 15px 30px -10px rgba(50, 40, 30, 0.05);
+  --shadow-button: 0 4px 20px -5px rgba(0, 0, 0, 0.1);
+
+  --animate-float: float 8s ease-in-out infinite;
+  --animate-float-delayed: float 8s ease-in-out 4s infinite;
+  --animate-pulse-slow: pulse 5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  --animate-gradient-xy: gradient-xy 15s ease infinite;
+
+  @keyframes float {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-15px); }
+  }
+
+  @keyframes gradient-xy {
+    0%, 100% {
+      background-size: 200% 200%;
+      background-position: left center;
+    }
+    50% {
+      background-size: 200% 200%;
+      background-position: right center;
+    }
+  }
+}
+
+body {
+  background-color: var(--color-pearl-50);
+  background: radial-gradient(circle at 50% 0%, var(--color-ivory-100) 0%, var(--color-pearl-50) 100%);
+  color: var(--color-sand-900);
+  font-family: var(--font-sans);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow-x: hidden;
+}
+
+::selection {
+  background-color: var(--color-stone-200);
+  color: black;
+}
+
+.animated-bg {
+  background: linear-gradient(-45deg, #fdfbf7, #fdfcfc, #fbf8f2, #fffefc);
+  background-size: 400% 400%;
+  animation: gradient 15s ease infinite;
+}
+
+@keyframes gradient {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+.glass-card {
+  background: rgba(255, 255, 255, 0.3);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  box-shadow: 0 20px 40px -5px rgba(0,0,0,0.06);
+}
+
+.glass-button {
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #e7e5e4;
+  border-radius: 10px;
+}
+
+/* Base styles for Typography overrides that Tailwind handles but we need default config */
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-serif);
+}
+
+/* Pointer cursor for all interactive elements */
+@layer base {
+  button, a, [role="button"], label[for], select, summary {
+    cursor: pointer;
+  }
+}

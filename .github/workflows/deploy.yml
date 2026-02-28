@@ -100,6 +100,7 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
+            export KUBECONFIG=~/.kube/config
             cd ~/biscuit-agent/k8s
 
             # Set up the secrets for K8s

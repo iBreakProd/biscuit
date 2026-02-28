@@ -14,16 +14,23 @@ export const openai = new OpenAI({
 export async function callPlannerLLM(params: {
   messages: { role: "system" | "user" | "assistant"; content: string }[];
 }): Promise<string> {
-  const completion = await openai.chat.completions.create({
+  console.log(`[OpenAI] Calling ${process.env.PLANNING_MODEL || "gpt-4o-mini"} for planning...`);
+  
+  // Wrap with a 15-second timeout to prevent infinite hangs
+  const timeoutPromise = new Promise<never>((_, reject) => 
+    setTimeout(() => reject(new Error("OpenAI API request timed out after 15 seconds")), 15000)
+  );
+  
+  const completionPromise = openai.chat.completions.create({
     model: process.env.PLANNING_MODEL || "gpt-4o-mini",
     messages: params.messages,
-    // Add explicitly JSON response format to ensure valid object
     response_format: { type: "json_object" },
   });
 
-  return completion.choices[0]?.message?.content || "{}";
+  const completion = await Promise.race([completionPromise, timeoutPromise]);
+  console.log(`[OpenAI] Planning request completed successfully.`);
+  return (completion as any).choices[0]?.message?.content || "{}";
 }
-
 export async function callChatModel(params: {
   messages: { role: "system" | "user" | "assistant"; content: string }[];
 }): Promise<string> {

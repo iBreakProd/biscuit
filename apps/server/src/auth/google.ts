@@ -4,8 +4,29 @@ import jwt from "jsonwebtoken";
 import { db } from "@repo/db";
 import { users } from "@repo/db/schemas";
 import { eq } from "drizzle-orm";
+import { requireAuth, AuthenticatedRequest } from "./middleware";
 
 const router: ExpressRouter = Router();
+
+// Validate token + confirm user still exists in DB
+router.get("/me", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const authReq = req as AuthenticatedRequest;
+  try {
+    const [user] = await db
+      .select({ id: users.id, email: users.email, name: users.name })
+      .from(users)
+      .where(eq(users.id, authReq.user!.id))
+      .limit(1);
+    if (!user) {
+      res.status(401).json({ error: "User not found" });
+      return;
+    }
+    res.json({ user });
+  } catch (err) {
+    console.error("/auth/me error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
 
 export function getGoogleOAuthClient(): any {
   return new google.auth.OAuth2(

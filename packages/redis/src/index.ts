@@ -19,6 +19,17 @@ export async function getRedisClient(): Promise<RedisClientType> {
   return redisClient;
 }
 
+export async function getIsolatedRedisClient(): Promise<RedisClientType> {
+  const client = createClient({
+    url: process.env.REDIS_URL,
+  }) as any as RedisClientType;
+  client.on("error", (err) => {
+    console.error("Isolated Redis Client Error", err);
+  });
+  await client.connect();
+  return client;
+}
+
 export async function healthCheckRedis(): Promise<boolean> {
   try {
     const client = await getRedisClient();
@@ -41,12 +52,17 @@ export async function redisXRead(
   count: number = 50,
   blockMs?: number
 ) {
-  const client = await getRedisClient();
   const streams = [{ key: stream, id: lastId }];
   
   if (blockMs !== undefined && blockMs >= 0) {
-    return await client.xRead(streams, { BLOCK: blockMs, COUNT: count });
+    const client = await getIsolatedRedisClient();
+    try {
+      return await client.xRead(streams, { BLOCK: blockMs, COUNT: count });
+    } finally {
+      await client.disconnect();
+    }
   } else {
+    const client = await getRedisClient();
     return await client.xRead(streams, { COUNT: count });
   }
 }
@@ -55,14 +71,23 @@ import { AgentEvent, AgentEventSchema } from "@repo/zod-schemas";
 
 export async function appendAgentEvent(taskId: string, event: Omit<AgentEvent, 'id'>): Promise<AgentEvent> {
   const streamKey = `agent_events:${taskId}`;
+  console.log(`[Redis:appendAgentEvent] Getting client for task ${taskId}...`);
   const client = await getRedisClient();
-  const id = await client.xAdd(streamKey, "*", { data: JSON.stringify(event) }, {
+  console.log(`[Redis:appendAgentEvent] Client retrieved. Performing xAdd for task ${taskId}...`);
+  const timeoutPromise = new Promise<never>((_, reject) => 
+    setTimeout(() => reject(new Error("Redis xAdd timed out after 5 seconds")), 5000)
+  );
+
+  const xAddPromise = client.xAdd(streamKey, "*", { data: JSON.stringify(event) }, {
     TRIM: {
       strategy: 'MAXLEN',
       strategyModifier: '~',
       threshold: 1000
     }
   });
+
+  const id = await Promise.race([xAddPromise, timeoutPromise]);
+  console.log(`[Redis:appendAgentEvent] xAdd successful. ID: ${id}. Setting expiration...`);
 
   // Spec mandates roughly 15 minutes TTL for the stream.
   // 900 seconds = 15 minutes.
@@ -125,7 +150,7 @@ export async function redisXReadGroup(
   count: number = 10,
   blockMs: number = 2000
 ) {
-  const client = await getRedisClient();
+  const client = await getIsolatedRedisClient();
   const streams = [{ key: stream, id: ">" }]; // > means messages never delivered to this group
 
   try {
@@ -148,6 +173,8 @@ export async function redisXReadGroup(
       );
     }
     throw err;
+  } finally {
+    await client.disconnect();
   }
 }
 
