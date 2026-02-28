@@ -9,11 +9,11 @@ resources:
 
 images:
   - name: my-registry/biscuit-server
-    newName: ghcr.io/username/biscuit-server
-    newTag: latest
+    newName: DOCKERHUB_IMAGE/biscuit-server
+    newTag: IMAGE_TAG
   - name: my-registry/biscuit-worker-drive-fetch
-    newName: ghcr.io/username/biscuit-worker-drive-fetch
-    newTag: latest
+    newName: DOCKERHUB_IMAGE/biscuit-worker-drive-fetch
+    newTag: IMAGE_TAG
   - name: my-registry/biscuit-worker-drive-vectorize
-    newName: ghcr.io/username/biscuit-worker-drive-vectorize
-    newTag: latest
+    newName: DOCKERHUB_IMAGE/biscuit-worker-drive-vectorize
+    newTag: IMAGE_TAG

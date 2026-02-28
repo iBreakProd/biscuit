@@ -119,10 +119,8 @@ jobs:
               --dry-run=client -o yaml | kubectl apply -f -
 
             # Update Kustomize image tags
-            # We use sed as a fallback if kustomize CLI is absent
-            sed -i "s|ghcr.io/username/biscuit-server:latest|${{ secrets.DOCKERHUB_USERNAME }}/biscuit-server:${{ github.sha }}|g" kustomization.yaml
-            sed -i "s|ghcr.io/username/biscuit-worker-drive-fetch:latest|${{ secrets.DOCKERHUB_USERNAME }}/biscuit-worker-drive-fetch:${{ github.sha }}|g" kustomization.yaml
-            sed -i "s|ghcr.io/username/biscuit-worker-drive-vectorize:latest|${{ secrets.DOCKERHUB_USERNAME }}/biscuit-worker-drive-vectorize:${{ github.sha }}|g" kustomization.yaml
+            sed -i "s|DOCKERHUB_IMAGE|${{ secrets.DOCKERHUB_USERNAME }}|g" kustomization.yaml
+            sed -i "s|IMAGE_TAG|${{ github.sha }}|g" kustomization.yaml
 
             # Apply the manifest
             kubectl apply -k .
