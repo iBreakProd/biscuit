@@ -35,10 +35,22 @@ router.get("/:chatId", requireAuth, async (req: Request, res: Response) => {
 
 import { runAgentTask } from "../agent/runAgentTask";
 
+const MAX_CONCURRENT_TASKS = 10;
+export let activeAgentTasks = 0;
+
 router.post(
   "/:chatId/messages",
   requireAuth,
-  async (req: Request, res: Response) => {
+  async (req: Request, res: Response): Promise<void> => {
+    if (activeAgentTasks >= MAX_CONCURRENT_TASKS) {
+      res.status(429).json({ error: "Too many active tasks. Please try again later." });
+      return;
+    }
+
+    // Synchronously increment before any `await` yields the event loop!
+    activeAgentTasks++;
+    let taskHandledInAgent = false;
+
     try {
       const chatId = req.params.chatId as string;
       const validatedBody = ChatMessageCreateSchema.parse(req.body);
@@ -50,14 +62,20 @@ router.post(
         validatedBody.content
       );
 
+      taskHandledInAgent = true;
       // Execute real AI agent without awaiting 
       // so HTTP response returns immediately
       runAgentTask(result.taskId).catch(err => {
         console.error("Background agent failed:", err);
+      }).finally(() => {
+        activeAgentTasks--;
       });
 
       res.json(result);
     } catch (error) {
+      if (!taskHandledInAgent) {
+        activeAgentTasks--;
+      }
       console.error("Failed to append message", error);
       res.status(400).json({ error: "Invalid request" });
     }

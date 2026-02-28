@@ -28,9 +28,9 @@ export async function executePlannedSteps(args: {
   steps: PlannedStep[];
   appendEvent: (event: AgentEventInput) => Promise<void>;
   citationsAccumulator?: Citation[];
+  startTime: number;
 }): Promise<{ stepSummaries: StepSummary[]; timeoutReached: boolean; maxStepsReached: boolean }> {
-  const { taskId, inputPrompt, steps, appendEvent } = args;
-  const startTime = Date.now();
+  const { taskId, inputPrompt, steps, appendEvent, startTime } = args;
   const MAX_RUNTIME_MS = 60 * 1000;
 
   const stepSummaries: StepSummary[] = [];

@@ -14,6 +14,7 @@ export const envChecker = () => {
     GOOGLE_CLIENT_SECRET,
     GOOGLE_REDIRECT_URI,
     JWT_SECRET,
+    FRONTEND_URL,
   } = process.env;
 
   const missingVars: string[] = [];
@@ -30,6 +31,7 @@ export const envChecker = () => {
   if (!GOOGLE_CLIENT_SECRET) missingVars.push("GOOGLE_CLIENT_SECRET");
   if (!GOOGLE_REDIRECT_URI) missingVars.push("GOOGLE_REDIRECT_URI");
   if (!JWT_SECRET) missingVars.push("JWT_SECRET");
+  if (!FRONTEND_URL) missingVars.push("FRONTEND_URL");
 
   if (missingVars.length > 0) {
     throw new Error(

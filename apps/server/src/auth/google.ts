@@ -102,7 +102,8 @@ router.get("/google/callback", async (req: Request, res: Response): Promise<void
       { expiresIn: "7d" }
     );
 
-    res.redirect(`http://localhost:3000/?token=${sessionToken}`);
+    const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
+    res.redirect(`${frontendUrl}/?token=${sessionToken}`);
   } catch (error) {
     console.error("Google OAuth API Error:", error);
     res.status(500).send("Authentication failed");

@@ -1,0 +1,31 @@
+services:
+  redis:
+    image: redis:alpine
+    container_name: biscuit-redis
+    restart: always
+
+  server:
+    image: ${DOCKERHUB_IMAGE_PREFIX}-server:${IMAGE_TAG}
+    container_name: biscuit-server
+    restart: always
+    depends_on:
+      - redis
+    ports:
+      - "3001:3001"
+    env_file: .env.biscuit.production
+
+  worker-drive-fetch:
+    image: ${DOCKERHUB_IMAGE_PREFIX}-worker-drive-fetch:${IMAGE_TAG}
+    container_name: biscuit-worker-drive-fetch
+    restart: always
+    depends_on:
+      - redis
+    env_file: .env.biscuit.production
+
+  worker-drive-vectorize:
+    image: ${DOCKERHUB_IMAGE_PREFIX}-worker-drive-vectorize:${IMAGE_TAG}
+    container_name: biscuit-worker-drive-vectorize
+    restart: always
+    depends_on:
+      - redis
+    env_file: .env.biscuit.production

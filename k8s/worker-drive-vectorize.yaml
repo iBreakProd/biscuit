@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker-drive-vectorize
+  labels:
+    app: worker-drive-vectorize
+spec:
+  # Do not specify replicas here if using KEDA; KEDA manages it.
+  selector:
+    matchLabels:
+      app: worker-drive-vectorize
+  template:
+    metadata:
+      labels:
+        app: worker-drive-vectorize
+    spec:
+      containers:
+        - name: worker-drive-vectorize
+          image: my-registry/biscuit-worker-drive-vectorize:latest
+          imagePullPolicy: Always
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: biscuit-secrets
+                  key: DATABASE_URL
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: biscuit-secrets
+                  key: REDIS_URL
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: biscuit-secrets
+                  key: OPENAI_API_KEY
+            - name: QDRANT_URL
+              valueFrom:
+                secretKeyRef:
+                  name: biscuit-secrets
+                  key: QDRANT_URL
+            - name: QDRANT_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: biscuit-secrets
+                  key: QDRANT_API_KEY

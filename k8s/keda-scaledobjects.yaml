@@ -1,0 +1,39 @@
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: worker-drive-fetch-scaler
+  labels:
+    app: worker-drive-fetch
+spec:
+  scaleTargetRef:
+    name: worker-drive-fetch
+  pollingInterval: 15
+  cooldownPeriod:  30
+  minReplicaCount: 0
+  maxReplicaCount: 5
+  triggers:
+  - type: redis
+    metadata:
+      addressFromEnv: REDIS_URL
+      listName: drive_fetch:0  # The queue/stream name
+      listLength: "1"          # Scale out on 1 queue item
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: worker-drive-vectorize-scaler
+  labels:
+    app: worker-drive-vectorize
+spec:
+  scaleTargetRef:
+    name: worker-drive-vectorize
+  pollingInterval: 15
+  cooldownPeriod:  30
+  minReplicaCount: 0
+  maxReplicaCount: 5
+  triggers:
+  - type: redis
+    metadata:
+      addressFromEnv: REDIS_URL
+      listName: drive_vectorize:0  # The queue/stream name
+      listLength: "1"              # Scale out on 1 queue item

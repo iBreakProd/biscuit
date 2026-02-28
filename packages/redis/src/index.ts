@@ -55,7 +55,18 @@ import { AgentEvent, AgentEventSchema } from "@repo/zod-schemas";
 
 export async function appendAgentEvent(taskId: string, event: Omit<AgentEvent, 'id'>): Promise<AgentEvent> {
   const streamKey = `agent_events:${taskId}`;
-  const id = await redisXAdd(streamKey, { data: JSON.stringify(event) });
+  const client = await getRedisClient();
+  const id = await client.xAdd(streamKey, "*", { data: JSON.stringify(event) }, {
+    TRIM: {
+      strategy: 'MAXLEN',
+      strategyModifier: '~',
+      threshold: 1000
+    }
+  });
+
+  // Spec mandates roughly 15 minutes TTL for the stream.
+  // 900 seconds = 15 minutes.
+  await client.expire(streamKey, 900);
   
   return {
     ...event,

@@ -1,0 +1,41 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker-drive-fetch
+  labels:
+    app: worker-drive-fetch
+spec:
+  # Do not specify replicas here if using KEDA; KEDA manages it.
+  selector:
+    matchLabels:
+      app: worker-drive-fetch
+  template:
+    metadata:
+      labels:
+        app: worker-drive-fetch
+    spec:
+      containers:
+        - name: worker-drive-fetch
+          image: my-registry/biscuit-worker-drive-fetch:latest
+          imagePullPolicy: Always
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: biscuit-secrets
+                  key: DATABASE_URL
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: biscuit-secrets
+                  key: REDIS_URL
+            - name: GOOGLE_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: biscuit-secrets
+                  key: GOOGLE_CLIENT_ID
+            - name: GOOGLE_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: biscuit-secrets
+                  key: GOOGLE_CLIENT_SECRET

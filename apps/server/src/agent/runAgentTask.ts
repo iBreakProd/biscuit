@@ -51,6 +51,9 @@ export async function runAgentTask(taskId: string) {
       });
     };
 
+    const startTime = Date.now();
+    const MAX_RUNTIME_MS = 60 * 1000;
+
     await emit({
       type: "start",
       title: "Agent started processing task",
@@ -77,6 +80,10 @@ export async function runAgentTask(taskId: string) {
       totalSteps: steps.length,
     });
 
+    if (Date.now() - startTime >= MAX_RUNTIME_MS) {
+       throw new Error("Task timed out before execution phase");
+    }
+
     // 3. Execution Phase
     const citationsAccumulator: any[] = [];
     const { stepSummaries, timeoutReached, maxStepsReached } = await executePlannedSteps({
@@ -87,7 +94,8 @@ export async function runAgentTask(taskId: string) {
       appendEvent: async (ev) => {
         await appendAgentEvent(taskId, ev);
       },
-      citationsAccumulator
+      citationsAccumulator,
+      startTime
     });
 
     // Spec §11.2: status is "timeout" if wall-clock exceeded, "max_steps" if agent used all 7 planned steps
@@ -98,13 +106,19 @@ export async function runAgentTask(taskId: string) {
       type: "reflecting",
       title: "Finalizing response",
     });
-
-    const { finalAnswerMarkdown } = await finalizeTask({
-      userMessage: userMessageContent,
-      history: historyRows.slice(0, -1).map(r => ({ role: r.role as "user"| "assistant", content: r.content })), 
-      stepSummaries,
-      citations: citationsAccumulator,
-    });
+    
+    let finalAnswerMarkdown = "";
+    if (timeoutReached) {
+       finalAnswerMarkdown = "Task timed out after 60 seconds.";
+    } else {
+       const finalizerObj = await finalizeTask({
+         userMessage: userMessageContent,
+         history: historyRows.slice(0, -1).map(r => ({ role: r.role as "user"| "assistant", content: r.content })), 
+         stepSummaries,
+         citations: citationsAccumulator,
+       });
+       finalAnswerMarkdown = finalizerObj.finalAnswerMarkdown;
+    }
 
     // Extract deduplicated used chunks
     const usedChunkIds = Array.from(new Set(citationsAccumulator.filter(c => c.type === "drive").map(c => c.chunkId)));
