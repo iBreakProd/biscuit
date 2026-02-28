@@ -26,13 +26,15 @@
 7. [Vector Database & Embeddings](#vector-database--embeddings)
 8. [Real-Time Streaming (SSE)](#real-time-streaming-sse)
 9. [Background Job System](#background-job-system)
-10. [Authentication](#authentication)
-11. [Database Schema](#database-schema)
-12. [API Reference](#api-reference)
-13. [Frontend Architecture](#frontend-architecture)
-14. [Getting Started](#getting-started)
-15. [Environment Variables](#environment-variables)
-16. [Available Scripts](#available-scripts)
+10. [Rate Limiting](#rate-limiting)
+11. [Caching](#caching)
+12. [Authentication](#authentication)
+13. [Database Schema](#database-schema)
+14. [API Reference](#api-reference)
+15. [Frontend Architecture](#frontend-architecture)
+16. [Getting Started](#getting-started)
+17. [Environment Variables](#environment-variables)
+18. [Available Scripts](#available-scripts)
 
 ---
 
@@ -107,7 +109,7 @@ User input
 
 **Drive sync → indexed chunks:**
 ```
-POST /drive/sync
+POST /drive/sync  [rate-limited: 1 per user per 60s]
   → Google Drive API: list files
   → DB: upsert drive_files
   → XADD drive_fetch:{shard}
@@ -134,10 +136,10 @@ POST /drive/sync
 | **Turborepo + pnpm** | Monorepo build orchestration |
 | **Neon (serverless Postgres)** | Primary database via Drizzle ORM |
 | **Drizzle ORM** | Type-safe SQL queries and migrations |
-| **Redis (Upstash / self-hosted)** | Stream-based event bus + job queues |
+| **Redis** | Stream-based event bus, job queues, rate limiting |
 | **Qdrant Cloud** | Vector similarity search (`drive_vectors` collection) |
 | **OpenAI gpt-4o-mini** | Agent reasoning, planning, final answer generation |
-| **OpenAI text-embedding-3-small** | Chunk + query embeddings |
+| **OpenAI text-embedding-3-small** | Chunk + query embeddings (1536 dimensions) |
 | **Tavily** | Web search in agent tool loop |
 | **Google Drive API + OAuth2** | User Drive access and file ingestion |
 | **KEDA** | Autoscaling workers based on Redis stream lag |
@@ -174,7 +176,7 @@ biscuit/
 │   ├── qdrant/                    # ensureDriveVectorsCollection, searchDriveVectors
 │   └── zod-schemas/               # All shared Zod schemas and inferred types
 │
-├── k8s/                           # Kubernetes manifests (server, workers, KEDA)
+├── k8s/                           # Kubernetes manifests (redis, server, workers, KEDA)
 └── .github/workflows/deploy.yml   # CI/CD pipeline
 ```
 
@@ -182,7 +184,7 @@ biscuit/
 
 ## Agent Architecture (Deep Dive)
 
-The agent is a **ReAct loop** implemented in `apps/server/src/agent/loop.ts`, orchestrated by `runAgentTask.ts`. It runs entirely in-process on `apps/server` — no separate orchestration service.
+The agent is a **ReAct loop** implemented in `apps/server/src/agent/loop.ts`, orchestrated by `runAgentTask.ts`. It runs entirely in-process on `apps/server`.
 
 ### Loop Overview
 
@@ -193,7 +195,7 @@ graph TD
     C --> D[Emit: start]
     D --> E[LLM: Plan<br>action=plan, plan_steps array]
     E --> F[Emit: step_complete with plan array]
-    F --> G{Loop: step ≤ 7 and time ≤ 60s}
+    F --> G{Loop: step ≤ 7 and time ≤ 120s}
     G -->|next step| H[Emit: reflecting + thought]
     H --> I[LLM: call_tool or final_answer]
     I -->|call_tool| J[Execute tool inline]
@@ -207,15 +209,15 @@ graph TD
 
 ### Planning
 
-The first LLM call must return `action: "plan"` with a `plan_steps` string array. The agent emits a `step_complete` event carrying the full `plan` array so the frontend can render all planned steps at once before execution begins.
+The first LLM call must return `action: "plan"` with a `plan_steps` string array. The agent emits a `plan` event carrying the full array so the frontend can render the complete plan checklist before execution begins.
 
 ### Execution Loop
 
 Each iteration:
-1. Emits `reflecting` with `thought_for_next_step` — what the agent intends to do *next* (not the current step).
-2. Calls LLM → expects `action: "call_tool"` with `tool`, `tool_query`.
+1. Emits `reflecting` with `thought_for_next_step`.
+2. Calls LLM → expects `action: "call_tool"` with `tool` and `tool_query`.
 3. Executes tool inline (no subprocess, no queue).
-4. Injects `Tool {toolName} Execution Result:\n{observation}` back into the trajectory.
+4. Injects `Tool {toolName} Execution Result:\n{observation}` into the trajectory.
 5. Emits `step_complete` with `observationSummary`.
 
 ### JSON Output Contract
@@ -233,7 +235,7 @@ The LLM is constrained to exactly three valid JSON shapes — no markdown wrappi
 { "action": "final_answer", "final_answer_markdown": "...", "thought": "..." }
 ```
 
-Invalid JSON triggers a re-prompt before incrementing the step counter.
+Invalid JSON triggers a corrective re-prompt before the step counter increments.
 
 ### Constraints
 
@@ -242,13 +244,14 @@ Invalid JSON triggers a re-prompt before incrementing the step counter.
 | Max steps | 7 |
 | Max wall-clock time | 120 seconds |
 | `runAgentTask` | Async, not awaited by HTTP handler |
-| In-process concurrency cap | Configurable (`MAX_CONCURRENT_TASKS`) |
+| In-process concurrency cap | `MAX_CONCURRENT_TASKS` (configurable, default 10) |
+| Over-limit behavior | Fail-fast — new task requests beyond the cap are rejected |
 
 ---
 
 ## Tools
 
-All tools are implemented inline in `apps/server/src/tools/`. No subprocess or separate worker is used.
+All tools are implemented inline in `apps/server/src/tools/`.
 
 ### `drive_retrieve`
 
@@ -267,7 +270,7 @@ All tools are implemented inline in `apps/server/src/tools/`. No subprocess or s
 | **File** | `src/tools/web_search.ts` |
 | **Input schema** | `WebSearchInputSchema`: `{ query: string, topK?: number }` |
 | **Steps** | Call Tavily Search API → format results as `WebCitation[]` |
-| **When used** | After `drive_retrieve` if Drive results are insufficient, or for queries requiring current/general knowledge |
+| **When used** | After `drive_retrieve` if Drive results are insufficient, or for queries requiring current / general knowledge. Irrelevant results are discarded by the agent. |
 
 ### `web_scrape`
 
@@ -275,7 +278,7 @@ All tools are implemented inline in `apps/server/src/tools/`. No subprocess or s
 |---|---|
 | **File** | `src/tools/web_scrape.ts` |
 | **Input** | `{ url: string }` — must be a valid HTTP/HTTPS URL |
-| **Steps** | Extract URL from query → fetch and extract main text content → truncate to 2000 chars |
+| **Steps** | Fetch URL → extract main text → truncate to ~2 000 chars |
 | **When used** | After `web_search` to read full page content from a specific result URL |
 
 ---
@@ -297,8 +300,8 @@ sequenceDiagram
     Google-->>Server: GET /auth/google/callback?code=...
     Server->>Google: Exchange code for tokens
     Server->>Server: Upsert users row, store encrypted tokens
-    Server-->>Frontend: JWT token in response
-    Frontend->>Frontend: Store JWT in localStorage
+    Server-->>Frontend: JSON response { token: JWT }
+    Frontend->>Frontend: Store JWT in localStorage (biscuit_auth_token)
 ```
 
 ### Sync Pipeline
@@ -312,7 +315,8 @@ sequenceDiagram
     participant WorkerVectorize
     participant Qdrant
 
-    User->>Server: POST /drive/sync (rate-limited: 1/min)
+    User->>Server: POST /drive/sync
+    Note over Server: Rate-limited: 1 per user per 60s → 429 if exceeded
     Server->>Server: Drive API: list files
     Server->>Server: Upsert drive_files (discovered/stale detection)
     Server->>Redis: XADD drive_fetch:{shard} for new/stale files
@@ -324,7 +328,7 @@ sequenceDiagram
 
     Redis-->>WorkerVectorize: XREAD (consumer group: drive-vectorize-workers)
     WorkerVectorize->>WorkerVectorize: Chunk text (800 tokens / 100 overlap)
-    WorkerVectorize->>WorkerVectorize: OpenAI: embed each chunk
+    WorkerVectorize->>WorkerVectorize: OpenAI: embed each chunk (text-embedding-3-small)
     WorkerVectorize->>Qdrant: Upsert points into drive_vectors
     WorkerVectorize->>Server: DB insert chunks, drive_files.ingestion_phase=indexed
 ```
@@ -350,16 +354,14 @@ sequenceDiagram
 
 ### Point Payload
 
-Each Qdrant point corresponds to one `chunks` row and carries:
-
 ```json
 {
-  "user_id":    "uuid",
-  "file_id":    "drive-file-id",
-  "file_name":  "Report.pdf",
+  "user_id":     "uuid",
+  "file_id":     "drive-file-id",
+  "file_name":   "Report.pdf",
   "chunk_index": 3,
-  "mime_type":  "application/pdf",
-  "hash":       "sha256..."
+  "mime_type":   "application/pdf",
+  "hash":        "sha256..."
 }
 ```
 
@@ -369,7 +371,7 @@ Each Qdrant point corresponds to one `chunks` row and carries:
 |---|---|
 | Chunk size | ~800 tokens |
 | Overlap | ~100 tokens |
-| ID | `chunks.id` (UUID, also used as Qdrant point ID) |
+| Point ID | `chunks.id` (UUID, doubles as Qdrant point ID) |
 
 ### Per-User Isolation
 
@@ -377,11 +379,11 @@ All Qdrant searches apply a `must` filter on `user_id` — users can only retrie
 
 ### Retrieval Post-Processing
 
-After search:
-1. Filter hits below score threshold (0.2).
-2. Fetch `chunks` DB rows for all hits.
+1. Drop hits below score threshold (0.2 cosine similarity).
+2. Fetch `chunks` Postgres rows for all hits.
 3. Group by `file_id`, take top 2 chunks per file.
-4. Cap at 5 unique files returned to the agent.
+4. Fetch neighbor chunks (`chunk_index ± 1`) for context enrichment.
+5. Cap at 5 unique files returned to the agent.
 
 ---
 
@@ -389,11 +391,23 @@ After search:
 
 **Endpoint:** `GET /sse/agent/:taskId?since={lastEventId}`
 
-The agent emits all intermediate events — plan, thoughts, tool calls, observations, final answer — to the Redis stream `agent_events:{taskId}` via `XADD`. The SSE endpoint reads from this stream with `XREAD` and pushes each event as an SSE `data:` frame with the Redis stream ID as the SSE `id:` field.
+The agent emits all intermediate events to the Redis stream `agent_events:{taskId}` via `XADD`. The SSE endpoint reads with `XREAD` and pushes each entry as an SSE `data:` frame, using the Redis stream ID as the SSE `id:` field.
 
 ```
 agent loop --XADD--> agent_events:{taskId} --XREAD--> /sse/agent/:taskId --SSE--> browser
 ```
+
+### Resumability
+
+Clients can resume a dropped connection by passing the last received Redis stream ID as either:
+- `?since={lastEventId}` query parameter
+- `Last-Event-ID` request header
+
+The server issues a `XREAD COUNT 100 STREAMS agent_events:{taskId} {since}` to replay missed events from that cursor.
+
+### Retention Policy
+
+`agent_events:{taskId}` streams are kept for approximately **10 minutes** after the task completes (Redis TTL). After expiry, the polling endpoint (`GET /tasks/:taskId/events`) falls back to the final state stored in Postgres (`agent_tasks.result_json`, `final_answer_markdown`, `step_summaries`).
 
 ### Event Types
 
@@ -401,23 +415,14 @@ agent loop --XADD--> agent_events:{taskId} --XREAD--> /sse/agent/:taskId --SSE--
 |---|---|---|
 | `start` | Task begins | `taskId` |
 | `plan` | Planning complete | `plan: string[]`, `thought_for_next_step` |
-| `step_executing` | Tool about to be called | `tool`, `thought` |
-| `reflecting` | LLM is thinking | `thought` |
+| `step_executing` | Tool about to be called | `thought` |
+| `reflecting` | LLM thinking | `thought` |
 | `step_complete` | Tool result observed | `observationSummary`, `progress` |
 | `finish` | Final answer ready | `finalAnswerMarkdown`, `citations[]` |
 
-### Frontend Consumption
+### nginx Requirements
 
-The frontend in `apps/web/src/app/chat/[id]/page.tsx`:
-1. Subscribes to `GET /sse/agent/:taskId` on task creation.
-2. On `plan` event: populates `agentPlan: string[]`, renders plan checklist.
-3. On `reflecting`/`step_executing`: appends to `agentThoughts[]` (deduplicated).
-4. Updates `currentStepIndex` → strikes through completed plan steps.
-5. On `finish`: renders final answer markdown and citation chips.
-
-### SSE Nginx Requirements
-
-nginx must be configured with `proxy_buffering off` and `proxy_read_timeout 300s` to prevent buffering that would break the streaming experience.
+nginx must be configured with `proxy_buffering off` and `proxy_read_timeout 300s`. Without these, nginx buffers the SSE stream and events are not delivered in real time.
 
 ---
 
@@ -434,16 +439,67 @@ Workers are scaled to zero when queues are empty (KEDA `minReplicaCount: 0`) and
 
 `agent_events:{taskId}` is **not** a consumer group stream — every SSE client reads from its own position independently.
 
+### Worker Retry Policy
+
+When a downstream call fails (Google Drive API 429/5xx or OpenAI rate limit):
+
+1. Increment `drive_files.retry_count`.
+2. If `retry_count ≤ 2`: re-enqueue the job after a delay (exponential backoff), update `last_retry_at`.
+3. If `retry_count > 2`: set `ingestion_phase = "failed"`, write `ingestion_error`, stop retrying.
+
+The `/drive/files/:fileId/retry` endpoint resets the counter and re-enqueues for manual recovery.
+
+---
+
+## Rate Limiting
+
+### Drive Sync
+
+`POST /drive/sync` is rate-limited to **1 request per user per 60 seconds**. Exceeding this limit returns:
+
+```
+HTTP 429 Too Many Requests
+{ "error": "Rate limit exceeded. Try again in a minute." }
+```
+
+The frontend should surface this as a user-friendly "try again in a minute" message rather than a generic error.
+
+### Agent Task Concurrency
+
+The server enforces a global in-process limit of `MAX_CONCURRENT_TASKS` concurrent agent runs (configured via an environment variable, default 10). When this ceiling is reached, new task start requests fail fast — the HTTP response for `POST /chats/:chatId/messages` will indicate the server is busy and the client should retry.
+
+### External API Quotas
+
+External provider calls (Google Drive API, OpenAI, Tavily) are subject to their own provider rate limits. Workers follow the retry policy above (up to 2 retries with exponential backoff) before marking a job as `failed`.
+
+---
+
+## Caching
+
+> **Planned: Response Caching** — not yet implemented; the following describes the intended design.
+
+Redis-based read-through caching is planned for two scenarios:
+
+| Target | Cache Key | Approximate TTL |
+|---|---|---|
+| `GET /drive/progress` response | `cache:drive_progress:{userId}` | 15 seconds |
+| `GET /drive/files` listing | `cache:drive_files:{userId}` | 30 seconds |
+| Agent final answers (repeated identical prompts) | `cache:agent_answer:{userId}:{hash(normalizedPrompt)}` | 5 minutes |
+
+**Approach:** On a cache hit the API returns the cached JSON directly without a Postgres query. On a miss it queries Postgres, writes the result to Redis with the specified TTL, then returns. The cache is invalidated on write operations (e.g. after a sync or ingestion state change).
+
+Agent answer caching uses a hash of the lowercased, whitespace-normalised prompt keyed per-user. This is safe because answers are personalized by `userId`.
+
 ---
 
 ## Authentication
 
-- **OAuth flow:** `GET /auth/google` → `GET /auth/google/callback`.
+- **OAuth flow:** `GET /auth/google` → Google consent screen → `GET /auth/google/callback`.
 - Google tokens are stored encrypted per-user in Postgres.
-- On callback: upsert `users` row, issue a signed **JWT**.
-- All authenticated API endpoints verify the JWT via `Authorization: Bearer <token>`.
-- Token is stored in `localStorage` on the frontend (`biscuit_auth_token`) and injected by `fetchWithAuth` in `src/lib/apiClient.ts`.
-- 401/403 responses automatically clear the token and redirect to `/login`.
+- On callback: upsert `users` row, issue a signed **JWT**, return it in the JSON response body as `{ token }`.
+- The frontend stores the token in `localStorage` under `biscuit_auth_token`.
+- All authenticated endpoints verify the JWT via `Authorization: Bearer <token>`, handled by `fetchWithAuth` in `src/lib/apiClient.ts`.
+- 401/403 responses automatically clear the stored token and redirect to `/login`.
 
 ---
 
@@ -507,6 +563,7 @@ erDiagram
         string ingestion_phase
         text ingestion_error
         int retry_count
+        timestamp last_retry_at
         timestamp created_at
         timestamp updated_at
     }
@@ -555,33 +612,32 @@ erDiagram
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/auth/google` | Redirect to Google OAuth consent screen |
-| `GET` | `/auth/google/callback` | Exchange code, upsert user, return JWT |
+| `GET` | `/auth/google/callback` | Exchange code, upsert user, return `{ token: JWT }` |
 
 ### Chat
 
 | Method | Path | Body / Params | Description |
 |---|---|---|---|
 | `POST` | `/chats` | `{}` | Create a new chat room |
-| `GET` | `/chats/:chatId` | — | Fetch chat + last N messages |
-| `PATCH` | `/chats/:chatId` | `{ title }` | Update chat title |
-| `POST` | `/chats/:chatId/messages` | `{ content }` | Send message, start agent task |
+| `GET` | `/chats/:chatId` | — | Fetch chat + last N messages ordered by `sequence ASC` |
+| `POST` | `/chats/:chatId/messages` | `{ content }` | Send message, start agent task async, return `{ taskId }` |
 
 ### Agent / Tasks
 
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/tasks/:taskId` | Task status, final answer, step summaries |
-| `GET` | `/sse/agent/:taskId?since=` | SSE stream of `AgentEvent`s |
+| `GET` | `/sse/agent/:taskId?since=` | SSE stream of `AgentEvent`s (resumable via `since` or `Last-Event-ID`) |
 | `GET` | `/tasks/:taskId/events?since=` | Polling endpoint, returns `AgentProgressResponse` |
 
 ### Drive
 
 | Method | Path | Description |
 |---|---|---|
-| `POST` | `/drive/sync` | List Drive files, upsert metadata, enqueue fetch jobs |
+| `POST` | `/drive/sync` | List Drive files, upsert metadata, enqueue fetch jobs. **Rate-limited: 1/user/60s → 429 if exceeded** |
 | `GET` | `/drive/progress` | Per-file ingestion progress + totals |
-| `POST` | `/drive/files/:fileId/retry` | Retry a failed file (fetch or vectorize phase) |
-| `GET` | `/drive/chunk/:chunkId` | Fetch chunk + neighbors + file metadata |
+| `POST` | `/drive/files/:fileId/retry` | Retry a failed file (resets retry count, re-enqueues) |
+| `GET` | `/drive/chunk/:chunkId` | Fetch chunk + neighbors (`chunk_index ± 1`) + file metadata |
 
 ---
 
@@ -598,7 +654,7 @@ erDiagram
 | `app/chat/layout.tsx` | Sidebar + nav shell |
 | `components/chat/AgentThoughtLoader.tsx` | Real-time plan checklist + scrolling thought log |
 | `components/chat/MessageList.tsx` | Renders user and assistant messages + citation chips |
-| `components/drive/DriveSyncModal.tsx` | Trigger sync, display progress |
+| `components/drive/DriveSyncModal.tsx` | Trigger sync, display per-file progress, handle 429 |
 | `components/drive/IndexedDocsModal.tsx` | Browse indexed Drive files |
 | `components/auth/AuthContext.tsx` | JWT auth state, `/me` fetch on mount |
 | `lib/apiClient.ts` | `fetchWithAuth` — injects `Authorization` header, handles 401 redirect |
@@ -608,7 +664,7 @@ erDiagram
 ```ts
 const [messages, setMessages]           // Rendered chat messages
 const [agentPlan, setAgentPlan]         // string[] from plan event
-const [agentThoughts, setAgentThoughts] // { id, text }[] — append-only log
+const [agentThoughts, setAgentThoughts] // { id, text }[] — append-only, deduplicated log
 const [currentStepIndex, setCurrentStepIndex] // Drives checklist strikethrough
 const [isGenerating, setIsGenerating]   // Shows AgentThoughtLoader
 ```
@@ -621,12 +677,12 @@ const [isGenerating, setIsGenerating]   // Shows AgentThoughtLoader
 
 - Node.js ≥ 22
 - pnpm ≥ 9
-- A Neon Postgres database
-- Redis (Upstash or self-hosted)
+- Neon Postgres database
+- Redis (self-hosted or managed)
 - Qdrant Cloud account
-- OpenAI API key
+- OpenAI API key (`gpt-4o-mini` + `text-embedding-3-small`)
 - Google OAuth application credentials
-- Tavily API key (for web search)
+- Tavily API key (web search)
 
 ### Installation
 
@@ -674,24 +730,34 @@ pnpm build
 | `QDRANT_URL` | Qdrant Cloud cluster URL |
 | `QDRANT_API_KEY` | Qdrant API key |
 | `OPENAI_API_KEY` | OpenAI API key |
+| `PLANNING_MODEL` | Chat model name (e.g. `gpt-4o-mini`) |
+| `EMBEDDING_MODEL` | Embedding model name (e.g. `text-embedding-3-small`) |
 | `TAVILY_API_KEY` | Tavily web search API key |
 | `GOOGLE_CLIENT_ID` | Google OAuth client ID |
 | `GOOGLE_CLIENT_SECRET` | Google OAuth client secret |
 | `GOOGLE_REDIRECT_URI` | OAuth callback URL |
 | `JWT_SECRET` | Secret for signing JWTs |
 | `FRONTEND_URL` | Frontend origin (CORS) |
+| `PORT` | HTTP port (default `3001`) |
 
-### `apps/worker-drive-fetch` + `apps/worker-drive-vectorize`
+### `apps/worker-drive-fetch`
 
 | Variable | Description |
 |---|---|
 | `DATABASE_URL` | Neon Postgres connection string |
 | `REDIS_URL` | Redis connection string |
-| `QDRANT_URL` | Qdrant Cloud cluster URL *(vectorize only)* |
-| `QDRANT_API_KEY` | Qdrant API key *(vectorize only)* |
-| `OPENAI_API_KEY` | OpenAI API key *(vectorize only)* |
-| `GOOGLE_CLIENT_ID` | Google OAuth client ID *(fetch only)* |
-| `GOOGLE_CLIENT_SECRET` | Google OAuth client secret *(fetch only)* |
+| `GOOGLE_CLIENT_ID` | Google OAuth client ID |
+| `GOOGLE_CLIENT_SECRET` | Google OAuth client secret |
+
+### `apps/worker-drive-vectorize`
+
+| Variable | Description |
+|---|---|
+| `DATABASE_URL` | Neon Postgres connection string |
+| `REDIS_URL` | Redis connection string |
+| `QDRANT_URL` | Qdrant Cloud cluster URL |
+| `QDRANT_API_KEY` | Qdrant API key |
+| `OPENAI_API_KEY` | OpenAI API key (for embeddings) |
 
 ### `apps/web`
 
