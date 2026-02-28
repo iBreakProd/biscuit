@@ -12,29 +12,36 @@ export async function driveRetrieveTool(input: DriveRetrieveInput): Promise<{ fo
   const queryEmbedding = await getEmbedding(input.query);
   console.log(`[drive_retrieve] Embedded query (dim=${queryEmbedding.length})`);
 
-  // 2. Search Qdrant (hard cutoff of 0.2)
+  // 2. Search Qdrant (score_threshold=0.4 enforced at the Qdrant level)
   const topK = input.topK || 20;
   let searchResults: Awaited<ReturnType<typeof searchDriveVectors>>;
   try {
-    searchResults = await searchDriveVectors(queryEmbedding, input.userId, topK);
-    console.log(`[drive_retrieve] Qdrant returned ${searchResults.length} raw hits (topK=${topK}, userId filter=${input.userId})`);
-    searchResults.forEach((h, i) => console.log(`  hit[${i}] id=${h.id} score=${h.score.toFixed(4)} payload=${JSON.stringify(h.payload)}`));
+    searchResults = await searchDriveVectors(queryEmbedding, input.userId, topK, 0.4);
+    console.log(`[drive_retrieve] Qdrant returned ${searchResults.length} raw hits (topK=${topK}, threshold=0.4, userId=${input.userId})`);
+    console.log(`[drive_retrieve] ── Score breakdown ──────────────────────────`);
+    searchResults.forEach((h, i) => {
+      const score = h.score.toFixed(4);
+      const bar = "█".repeat(Math.round(h.score * 20)).padEnd(20, "░");
+      const fileName = (h.payload?.file_name as string) ?? "unknown";
+      const chunkIdx = h.payload?.chunk_index ?? "?";
+      console.log(`  [${String(i + 1).padStart(2)}] ${bar} ${score}  "${fileName}" chunk #${chunkIdx}`);
+    });
+    console.log(`[drive_retrieve] ────────────────────────────────────────────`);
   } catch (qdrantErr: any) {
     console.error(`[drive_retrieve] ❌ Qdrant search FAILED:`, qdrantErr?.message || qdrantErr);
     throw qdrantErr; // Re-throw so executor catch logs it too
   }
 
-  const validHits = searchResults.filter(hit => hit.score >= 0.2);
-  console.log(`[drive_retrieve] ${validHits.length} hits passed the 0.2 score cutoff`);
+  console.log(`[drive_retrieve] ${searchResults.length} hits passed the 0.4 score threshold`);
 
-  if (validHits.length === 0) {
+  if (searchResults.length === 0) {
     return {
       formattedSnippet: "No relevant documents found in Google Drive.",
       citations: []
     };
   }
 
-  const chunkIds = validHits.map(hit => String(hit.id));
+  const chunkIds = searchResults.map(hit => String(hit.id));
   console.log(`[drive_retrieve] Fetching chunk text for IDs: ${chunkIds.join(", ")}`);
 
   // 3. Fetch actual chunk text + neighbors from PostgreSQL
@@ -55,7 +62,7 @@ export async function driveRetrieveTool(input: DriveRetrieveInput): Promise<{ fo
 
   // Map scores back so we can sort citations reliably
   const scoreMap = new Map<string, number>();
-  validHits.forEach(h => scoreMap.set(String(h.id), h.score));
+  searchResults.forEach(h => scoreMap.set(String(h.id), h.score));
 
   // 4. Group chunks by fileId to deduplicate and compress context
   const fileGroups = new Map<string, Array<{ chunkId: string; fileName: string; mimeType: string; score: number; text: string; }>>();

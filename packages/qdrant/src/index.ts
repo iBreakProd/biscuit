@@ -73,7 +73,12 @@ export async function upsertPoints(points: any[]) {
   });
 }
 
-export async function searchDriveVectors(embedding: number[], userId?: string, topK: number = 5) {
+export async function searchDriveVectors(
+  embedding: number[],
+  userId?: string,
+  topK: number = 5,
+  scoreThreshold: number = 0.4,
+) {
   const client = getQdrantClient();
 
   const filter: any = userId ? {
@@ -93,6 +98,7 @@ export async function searchDriveVectors(embedding: number[], userId?: string, t
       limit: topK,
       filter,
       with_payload: true,
+      score_threshold: scoreThreshold,
     });
   } catch (err: any) {
     // Log the full Qdrant error body so we can diagnose Bad Request causes

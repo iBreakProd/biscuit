@@ -96,8 +96,11 @@ async function processJob(jobData: any, messageId: string) {
     for (let i = 0; i < textChunks.length; i += BATCH_SIZE) {
         const batchChunks = textChunks.slice(i, i + BATCH_SIZE);
         
+        // Prepend file title to each chunk before embedding for better retrieval
+        const textsToEmbed = batchChunks.map(c => `Title: ${fileRecord.name}\n\n${c}`);
+
         const embeddingRes = await openai.embeddings.create({
-            input: batchChunks,
+            input: textsToEmbed,
             model: "text-embedding-3-small"
         });
         
