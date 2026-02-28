@@ -19,10 +19,10 @@ COPY packages/qdrant ./packages/qdrant
 COPY packages/redis ./packages/redis
 COPY packages/zod-schemas ./packages/zod-schemas
 
-RUN pnpm --filter @repo/db build && \
+RUN pnpm --filter @repo/zod-schemas build && \
+    pnpm --filter @repo/db build && \
     pnpm --filter @repo/qdrant build && \
     pnpm --filter @repo/redis build && \
-    pnpm --filter @repo/zod-schemas build && \
     pnpm --filter server build
 
 FROM node:22-alpine

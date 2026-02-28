@@ -7,6 +7,7 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/worker-drive-fetch/package.json ./apps/worker-drive-fetch/
 COPY packages/db/package.json ./packages/db/
 COPY packages/redis/package.json ./packages/redis/
+COPY packages/zod-schemas/package.json ./packages/zod-schemas/
 COPY packages/typescript-config/ ./packages/typescript-config/
 
 RUN pnpm install --frozen-lockfile
@@ -14,8 +15,10 @@ RUN pnpm install --frozen-lockfile
 COPY apps/worker-drive-fetch ./apps/worker-drive-fetch
 COPY packages/db ./packages/db
 COPY packages/redis ./packages/redis
+COPY packages/zod-schemas ./packages/zod-schemas
 
-RUN pnpm --filter @repo/db build && \
+RUN pnpm --filter @repo/zod-schemas build && \
+  pnpm --filter @repo/db build && \
   pnpm --filter @repo/redis build && \
   pnpm --filter worker-drive-fetch build
 
@@ -28,6 +31,7 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/worker-drive-fetch/package.json ./apps/worker-drive-fetch/
 COPY packages/db/package.json ./packages/db/
 COPY packages/redis/package.json ./packages/redis/
+COPY packages/zod-schemas/package.json ./packages/zod-schemas/
 COPY packages/typescript-config/ ./packages/typescript-config/
 
 RUN pnpm install --frozen-lockfile --prod
@@ -35,6 +39,7 @@ RUN pnpm install --frozen-lockfile --prod
 COPY --from=builder /app/apps/worker-drive-fetch/dist ./apps/worker-drive-fetch/dist
 COPY --from=builder /app/packages/db/dist ./packages/db/dist
 COPY --from=builder /app/packages/redis/dist ./packages/redis/dist
+COPY --from=builder /app/packages/zod-schemas/dist ./packages/zod-schemas/dist
 
 ENV NODE_ENV=production
 
