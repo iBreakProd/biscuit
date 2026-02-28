@@ -38,3 +38,16 @@ export async function callChatModel(params: {
 
   return completion.choices[0]?.message?.content || "";
 }
+
+export async function getEmbedding(text: string): Promise<number[]> {
+  if (!process.env.OPENAI_API_KEY) {
+    // Return a zero vector for local testing without an API key
+    console.warn("[getEmbedding] No OPENAI_API_KEY — returning zero vector. Drive search will return no results.");
+    return new Array(1536).fill(0);
+  }
+  const response = await openai.embeddings.create({
+    model: "text-embedding-3-small",
+    input: text,
+  });
+  return response.data[0]!.embedding;
+}

@@ -9,6 +9,7 @@ export const envChecker = () => {
     PLANNING_MODEL,
     EMBEDDING_MODEL,
     PORT,
+    REDIS_URL,
     GOOGLE_CLIENT_ID,
     GOOGLE_CLIENT_SECRET,
     GOOGLE_REDIRECT_URI,
@@ -24,6 +25,7 @@ export const envChecker = () => {
   if (!PLANNING_MODEL) missingVars.push("PLANNING_MODEL");
   if (!EMBEDDING_MODEL) missingVars.push("EMBEDDING_MODEL");
   if (!PORT) missingVars.push("PORT");
+  if (!REDIS_URL) missingVars.push("REDIS_URL");
   if (!GOOGLE_CLIENT_ID) missingVars.push("GOOGLE_CLIENT_ID");
   if (!GOOGLE_CLIENT_SECRET) missingVars.push("GOOGLE_CLIENT_SECRET");
   if (!GOOGLE_REDIRECT_URI) missingVars.push("GOOGLE_REDIRECT_URI");

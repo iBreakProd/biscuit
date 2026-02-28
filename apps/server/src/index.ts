@@ -32,8 +32,10 @@ app.use("/drive", driveRouter);
 import debugRouter from "./routes/debug";
 app.use("/debug", debugRouter);
 
+import { requireAuth } from "./auth/middleware";
+
 import { seedDummyData } from "./dev/seedVectorData";
-app.get("/seed", async (req: Request, res: Response) => {
+app.get("/seed", requireAuth, async (req: Request, res: Response) => {
   await seedDummyData();
   res.json({ status: "Seeded successfully" });
 });

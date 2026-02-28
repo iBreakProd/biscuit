@@ -1,8 +1,9 @@
 import { Router, Response, Router as ExpressRouter } from "express";
 import { AuthenticatedRequest, requireAuth } from "../auth/middleware";
+import { enqueueDriveFetchJob, enqueueDriveVectorizeJob } from "@repo/redis";
 import { listDriveFilesForUser } from "./client";
 import { db } from "@repo/db";
-import { driveFiles } from "@repo/db/schemas";
+import { driveFiles, chunks } from "@repo/db/schemas";
 import { eq, and } from "drizzle-orm";
 
 const router: ExpressRouter = Router();
@@ -23,7 +24,15 @@ router.post("/sync", requireAuth, async (req: AuthenticatedRequest, res: Respons
   syncRateLimits.set(user.id, now);
 
   try {
-    const files = await listDriveFilesForUser(user.googleTokens);
+    let files = await listDriveFilesForUser(user.googleTokens);
+    
+    // Allow limiting the number of synced files for integration tests
+    if (req.query.limit) {
+      const limit = parseInt(req.query.limit as string, 10);
+      if (!isNaN(limit) && limit > 0) {
+          files = files.slice(0, limit);
+      }
+    }
     
     const SUPPORTED_MIME_TYPES = [
       "application/pdf",
@@ -70,7 +79,7 @@ router.post("/sync", requireAuth, async (req: AuthenticatedRequest, res: Respons
         const fileModifiedDate = file.modifiedTime ? new Date(file.modifiedTime) : null;
 
         if (existingRecord.length === 0) {
-          await db.insert(driveFiles).values({
+          const [newRecord] = await db.insert(driveFiles).values({
             userId: user.id,
             fileId: file.fileId,
             name: file.name,
@@ -79,7 +88,11 @@ router.post("/sync", requireAuth, async (req: AuthenticatedRequest, res: Respons
             supported: isSupported,
             ingestionPhase: isPhase,
             ingestionError: errorMsg,
-          });
+          }).returning();
+          
+          if (isSupported) {
+              await enqueueDriveFetchJob(user.id, file.fileId);
+          }
         } else {
           const record = existingRecord[0]!;
           
@@ -106,6 +119,11 @@ router.post("/sync", requireAuth, async (req: AuthenticatedRequest, res: Respons
               updatedAt: new Date(),
             })
             .where(eq(driveFiles.id, record.id));
+            
+          // If we just marked it as discovered (because it was stale), enqueue it again.
+          if (isPhase === "discovered" && isSupported) {
+             await enqueueDriveFetchJob(user.id, file.fileId);
+          }
         }
       }
     } catch (dbError) {
@@ -136,6 +154,136 @@ router.get("/files", requireAuth, async (req: AuthenticatedRequest, res: Respons
     } catch (error) {
         console.error("Fetch Drive Files Error:", error);
         res.status(500).json({ error: "Internal Server Error" });
+    }
+});
+
+router.get("/progress", requireAuth, async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    const user = req.user!;
+    try {
+        const rows = await db.select().from(driveFiles).where(eq(driveFiles.userId, user.id));
+        
+        let supported = 0, unsupported = 0, indexed = 0, inProgress = 0, failed = 0;
+        
+        for (const r of rows) {
+            if (!r.supported) {
+                unsupported++;
+            } else {
+                supported++;
+                if (r.ingestionPhase === "indexed") indexed++;
+                else if (r.ingestionPhase === "failed") failed++;
+                else inProgress++;
+            }
+        }
+        
+        res.json({
+            totals: { supported, unsupported, indexed, inProgress, failed },
+            files: rows
+        });
+    } catch (error) {
+        console.error("Drive Progress Error:", error);
+        res.status(500).json({ error: "Internal Server Error" });
+    }
+});
+
+router.post("/files/:fileId/retry", requireAuth, async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    const user = req.user!;
+    const fileId = req.params.fileId as string;
+    
+    if (!fileId) {
+        res.status(400).json({ error: "fileId parameter is required" });
+        return;
+    }
+    
+    try {
+        const existing = await db.select().from(driveFiles).where(
+            and(eq(driveFiles.userId, user.id), eq(driveFiles.fileId, fileId))
+        );
+        
+        const record = existing[0];
+        
+        if (!record) {
+             res.status(404).json({ error: "File not found" });
+             return;
+        }
+        
+        if (record.ingestionPhase !== "failed") {
+            res.status(400).json({ error: "Only failed files can be retried manually." });
+            return;
+        }
+        
+        // MVP Retry Logic: If it failed, we'll assume it failed during fetch and reset to discovered
+        // If it actually had raw_documents but failed vectorization, we could jump to chunk_pending
+        // We will do a generic fallback to "discovered" for safety unless we do a join checks.
+        
+        await db.update(driveFiles)
+            .set({
+                ingestionPhase: "discovered",
+                retryCount: 0,
+                ingestionError: null,
+                updatedAt: new Date()
+            })
+            .where(eq(driveFiles.id, record.id));
+            
+        await enqueueDriveFetchJob(user.id, fileId);
+        
+        res.status(200).json({ message: "Job re-enqueued", fileId });
+    } catch (err: any) {
+        console.error("Error retrying file:", err);
+        res.status(500).json({ error: "Internal server error" });
+    }
+});
+
+router.get("/chunk/:chunkId", requireAuth, async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    const chunkId = req.params.chunkId as string;
+    
+    if (!chunkId) {
+        res.status(400).json({ error: "chunkId parameter is required" });
+        return;
+    }
+
+    try {
+        // 1. Fetch the origin chunk
+        const [originChunk] = await db.select().from(chunks).where(eq(chunks.id, chunkId)).limit(1);
+        
+        if (!originChunk) {
+            res.status(404).json({ error: "Chunk not found" });
+            return;
+        }
+
+        // 2. Fetch the file metadata
+        const [fileRecord] = await db.select().from(driveFiles).where(eq(driveFiles.fileId, originChunk.fileId)).limit(1);
+        
+        if (!fileRecord) {
+            res.status(404).json({ error: "Associated file not found" });
+            return;
+        }
+        
+        // Ensure user owns this chunk
+        if (fileRecord.userId !== req.user!.id) {
+             res.status(403).json({ error: "Forbidden: Not your file" });
+             return;
+        }
+
+        // 3. Fetch neighbors computationally (same approach as vector tool)
+        const localNeighbors = await db.select({ text: chunks.text, index: chunks.chunkIndex }).from(chunks).where(eq(chunks.fileId, originChunk.fileId));
+        
+        const targetIndices = [originChunk.chunkIndex - 1, originChunk.chunkIndex, originChunk.chunkIndex + 1];
+        const relevant = localNeighbors
+            .filter(n => targetIndices.includes(n.index))
+            .sort((a, b) => a.index - b.index);
+            
+        const enrichedText = relevant.map(r => r.text).join("\\n...\\n");
+
+        res.status(200).json({
+            chunkId,
+            fileId: fileRecord.fileId,
+            fileName: fileRecord.name,
+            mimeType: fileRecord.mimeType,
+            text: enrichedText
+        });
+    } catch (err: any) {
+        console.error("Error fetching chunk:", err);
+        res.status(500).json({ error: "Internal server error" });
     }
 });
 

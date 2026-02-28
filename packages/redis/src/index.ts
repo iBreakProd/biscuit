@@ -92,3 +92,75 @@ export async function readAgentEvents(
     return validated;
   });
 }
+
+// --- Background Worker Helpers ---
+
+export async function redisCreateConsumerGroup(stream: string, groupName: string) {
+  const client = await getRedisClient();
+  try {
+    // 0 means start from the very beginning of the stream if no existing cursor
+    await client.xGroupCreate(stream, groupName, "0", { MKSTREAM: true });
+  } catch (err: any) {
+    if (!err.message.includes("BUSYGROUP")) {
+      throw err;
+    }
+  }
+}
+
+export async function redisXReadGroup(
+  stream: string,
+  groupName: string,
+  consumerName: string,
+  count: number = 10,
+  blockMs: number = 2000
+) {
+  const client = await getRedisClient();
+  const streams = [{ key: stream, id: ">" }]; // > means messages never delivered to this group
+
+  try {
+    return await client.xReadGroup(
+      groupName,
+      consumerName,
+      streams,
+      { COUNT: count, BLOCK: blockMs }
+    );
+  } catch (err: any) {
+    if (err.message && err.message.includes("NOGROUP")) {
+      console.log(`[Redis] Setup missing, creating Consumer Group '${groupName}' for stream '${stream}'...`);
+      await redisCreateConsumerGroup(stream, groupName);
+      
+      return await client.xReadGroup(
+        groupName,
+        consumerName,
+        streams,
+        { COUNT: count, BLOCK: blockMs }
+      );
+    }
+    throw err;
+  }
+}
+
+export async function redisXAck(stream: string, groupName: string, messageId: string) {
+  const client = await getRedisClient();
+  await client.xAck(stream, groupName, messageId);
+}
+
+export async function enqueueDriveFetchJob(userId: string, fileId: string) {
+  // Hardcoded shard 0 for MVP
+  const streamKey = "drive_fetch:0";
+  return await redisXAdd(streamKey, { 
+    userId, 
+    fileId, 
+    enqueuedAt: Date.now().toString() 
+  });
+}
+
+export async function enqueueDriveVectorizeJob(userId: string, fileId: string) {
+  // Hardcoded shard 0 for MVP
+  const streamKey = "drive_vectorize:0";
+  return await redisXAdd(streamKey, { 
+    userId, 
+    fileId, 
+    enqueuedAt: Date.now().toString() 
+  });
+}

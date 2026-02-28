@@ -78,13 +78,16 @@ export async function runAgentTask(taskId: string) {
     });
 
     // 3. Execution Phase
+    const citationsAccumulator: any[] = [];
     const { stepSummaries, timeoutReached } = await executePlannedSteps({
       taskId,
+      userId: task.userId,
       inputPrompt: userMessageContent,
       steps,
       appendEvent: async (ev) => {
         await appendAgentEvent(taskId, ev);
-      }
+      },
+      citationsAccumulator
     });
 
     let finalStatus = timeoutReached ? "timeout" : "running"; // will switch to completed later
@@ -95,17 +98,20 @@ export async function runAgentTask(taskId: string) {
       title: "Finalizing response",
     });
 
-    const { finalAnswerMarkdown, citations } = await finalizeTask({
+    const { finalAnswerMarkdown } = await finalizeTask({
       userMessage: userMessageContent,
       history: historyRows.slice(0, -1).map(r => ({ role: r.role as "user"| "assistant", content: r.content })), 
       stepSummaries
     });
 
+    // Extract deduplicated used chunks
+    const usedChunkIds = Array.from(new Set(citationsAccumulator.filter(c => c.type === "drive").map(c => c.chunkId)));
+
     // 5. Build final event
     await emit({
       type: "finish",
       finalAnswerMarkdown,
-      citations: [], 
+      citations: citationsAccumulator, 
     });
 
     // 6. Push LLM output to Database sequentially
@@ -134,7 +140,8 @@ export async function runAgentTask(taskId: string) {
           status: timeoutReached ? "timeout" : "completed",
           finalAnswerMarkdown,
           stepSummaries: stepSummaries as any,
-          resultJson: { citations },
+          usedChunkIds, // Log the chunks for analytics/retrieval checks later
+          resultJson: { citations: citationsAccumulator },
           completedAt: new Date(),
         })
         .where(eq(agentTasks.id, taskId));

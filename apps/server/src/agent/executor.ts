@@ -1,6 +1,7 @@
 import { StepSummary, AgentEvent, Citation } from "@repo/zod-schemas";
 import { PlannedStep } from "./planner";
 import { vectorSearchTool } from "../tools/vectorSearch";
+import { driveRetrieveTool } from "../tools/driveRetrieve";
 
 export type AgentEventInput = Omit<AgentEvent, "id">;
 
@@ -13,9 +14,11 @@ export type AgentEventInput = Omit<AgentEvent, "id">;
  */
 export async function executePlannedSteps(args: {
   taskId: string;
+  userId: string;
   inputPrompt: string;
   steps: PlannedStep[];
   appendEvent: (event: AgentEventInput) => Promise<void>;
+  citationsAccumulator?: Citation[];
 }): Promise<{ stepSummaries: StepSummary[]; timeoutReached: boolean }> {
   const { taskId, inputPrompt, steps, appendEvent } = args;
   const startTime = Date.now();
@@ -75,6 +78,26 @@ export async function executePlannedSteps(args: {
       } catch (error: any) {
         dummyObservation = `vector_search failed: ${error.message}`;
         toolsUsed.push("vector_search");
+      }
+    } else if (textToCheck.includes("drive") || textToCheck.includes("document") || textToCheck.includes("file") || textToCheck.includes("retrieve")) {
+      try {
+        console.log(`[executor] Invoking drive_retrieve for userId=${args.userId}, query="${(inputPrompt + " " + step.title).substring(0, 80)}"`);
+        const results = await driveRetrieveTool({ query: inputPrompt + " " + step.title, userId: args.userId });
+        if (results.citations.length > 0) {
+          dummyObservation = `drive_retrieve returned: ${results.formattedSnippet}`;
+          toolsUsed.push("drive_retrieve");
+          
+          // Bubble citations up out of the executor loop
+          if (!args.citationsAccumulator) args.citationsAccumulator = [];
+          args.citationsAccumulator.push(...results.citations);
+        } else {
+          dummyObservation = "drive_retrieve returned no results.";
+          toolsUsed.push("drive_retrieve");
+        }
+      } catch (error: any) {
+        console.error(`[executor] drive_retrieve THREW:`, error?.message || error);
+        dummyObservation = `drive_retrieve failed: ${error.message}`;
+        toolsUsed.push("drive_retrieve");
       }
     }
     

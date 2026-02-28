@@ -74,6 +74,17 @@ CREATE TABLE "raw_documents" (
 	"updated_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
+CREATE TABLE "users" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"google_id" varchar NOT NULL,
+	"email" varchar NOT NULL,
+	"name" varchar NOT NULL,
+	"google_refresh_token" text,
+	"created_at" timestamp DEFAULT now() NOT NULL,
+	"updated_at" timestamp DEFAULT now() NOT NULL,
+	CONSTRAINT "users_google_id_unique" UNIQUE("google_id")
+);
+--> statement-breakpoint
 ALTER TABLE "agent_tasks" ADD CONSTRAINT "agent_tasks_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "agent_tasks" ADD CONSTRAINT "agent_tasks_chat_id_chat_rooms_id_fk" FOREIGN KEY ("chat_id") REFERENCES "public"."chat_rooms"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "agent_tasks" ADD CONSTRAINT "agent_tasks_chat_message_id_chat_messages_id_fk" FOREIGN KEY ("chat_message_id") REFERENCES "public"."chat_messages"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint

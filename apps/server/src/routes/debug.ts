@@ -2,10 +2,11 @@ import { Router, Request, Response, Router as ExpressRouter } from "express";
 import { z } from "zod";
 import { VectorSearchInputSchema } from "@repo/zod-schemas";
 import { vectorSearchTool } from "../tools/vectorSearch";
+import { requireAuth } from "../auth/middleware";
 
 const router: ExpressRouter = Router();
 
-router.get("/qdrant/vector-search", async (req: Request, res: Response) => {
+router.get("/qdrant/vector-search", requireAuth, async (req: Request, res: Response) => {
   try {
     // Parse the query params. 
     // Express req.query fields are strings, so we must coerce topK.

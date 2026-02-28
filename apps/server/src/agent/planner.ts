@@ -13,15 +13,17 @@ export async function planTask(args: {
 }): Promise<{ steps: PlannedStep[] }> {
   const { userMessage, history, availableTools } = args;
 
-  const toolDescriptions = `
+const toolDescriptions = `
 Available tools:
 - vector_search: Performs semantic search over a small set of seeded documentation about this system (vector search, Redis Streams, Drive ingestion, etc.) and returns relevant text snippets. Use this tool when you need information about the system architecture, ingestion processes, or streaming capabilities.
+- drive_retrieve: Performs semantic search over the user's indexed Google Drive documents. Use this tool when you need information about the user's personal knowledge, documents, or synced files.
 `;
 
   const systemPrompt = `You are a helpful AI agent. Your goal is to plan a sequence of steps to answer the user's request.
 Constraints:
 - You have a maximum of 7 steps. Keep your plan concise.
 - You have a maximum of 60 seconds (1 minute) execution budget.
+- If the user asks about their own documents, files, Google Drive, or personal knowledge, you MUST use the drive_retrieve tool.
 - The available tools you can use in the future are: [${availableTools.join(", ")}].
 ${toolDescriptions}
 - You MUST output ONLY valid JSON matching this structure:

@@ -5,40 +5,13 @@ import {
   getChatWithMessages,
   appendUserMessageWithTask,
 } from "../chat/service";
-
-
-import { db } from "@repo/db";
-import { users } from "@repo/db/schemas";
+import { requireAuth, AuthenticatedRequest } from "../auth/middleware";
 
 const router: Router = Router();
 
-// Mock Auth Middleware
-// In a real app this would extract the user from the session/token
-const requireAuth = async (req: Request, res: Response, next: Function) => {
-  // Assuming user ID is injected into the request by a real auth middleware
-  // We'll hardcode one for testing purposes until auth is implemented
-  const dummyUserId = "00000000-0000-0000-0000-000000000000";
-  
-  // Ensure the dummy user exists in the DB so foreign key constraints don't fail
-  try {
-    await db.insert(users).values({
-      id: dummyUserId,
-      googleId: "mock-google-id",
-      email: "test@example.com",
-      name: "Test User"
-    }).onConflictDoNothing();
-  } catch (e) {
-    console.error("Failed to seed dummy user", e);
-  }
-
-  (req as Request & { user?: { id: string } }).user = { id: dummyUserId };
-  next();
-};
-
 router.post("/", requireAuth, async (req: Request, res: Response) => {
   try {
-    const validatedBody = ChatCreateSchema.parse(req.body);
-    const authReq = req as Request & { user?: { id: string } };
+    const authReq = req as AuthenticatedRequest;
     const chat = await createChat(authReq.user!.id);
     res.json(chat);
   } catch (error) {

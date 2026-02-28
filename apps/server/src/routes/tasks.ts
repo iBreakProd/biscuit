@@ -4,14 +4,9 @@ import { agentTasks } from "@repo/db/schemas";
 import { eq } from "drizzle-orm";
 import { readAgentEvents } from "@repo/redis";
 import { TaskIdSchema, AgentEventsQuerySchema, AgentProgressResponseSchema } from "@repo/zod-schemas";
+import { requireAuth } from "../auth/middleware";
 
 const router: Router = Router();
-
-// Mock Auth Middleware
-const requireAuth = (req: Request, res: Response, next: Function) => {
-  (req as Request & { user?: { id: string } }).user = { id: "00000000-0000-0000-0000-000000000000" };
-  next();
-};
 
 router.get("/:taskId", requireAuth, async (req: Request, res: Response) => {
   try {

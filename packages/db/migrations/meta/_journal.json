@@ -5,15 +5,8 @@
     {
       "idx": 0,
       "version": "7",
-      "when": 1772215057921,
-      "tag": "0000_pretty_dragon_man",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "7",
-      "when": 1772217700579,
-      "tag": "0001_solid_sunfire",
+      "when": 1772235394064,
+      "tag": "0000_bouncy_penance",
       "breakpoints": true
     }
   ]
